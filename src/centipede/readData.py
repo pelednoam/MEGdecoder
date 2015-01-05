@@ -16,6 +16,7 @@ from src.centipede.analyzerCentipede import (AnalyzerCentipede,
 from src.commons.utils import tablesUtils
 from src.commons.utils import utils
 from src.commons.utils import plots
+from src.commons.utils import sectionsUtils as su
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -62,6 +63,8 @@ minFreqs = [0]
 maxFreqs = [80]
 onlyMidValueOptions = [True]
 FOLDS = 15
+if (FOLDS == 1):
+    print('DEBUG!!!! CHANGE FOLDS NUMBER!!!')
 TEST_SIZE = 0.5
 PROC_ID = AnalyzerCentipedeSuper.PROC_LEAVE_STAY_6_10
 tablesUtils.DEF_TABLES = False
@@ -76,21 +79,21 @@ def readData(shuffleLabelsOptions=[True, False], useSmote=False):
                 analyze = AnalyzerCentipede(FOLDER, DATA_FILE, subject,
                     procID=PROC_ID, jobsNum=JOBS,
                     shuffleLabels=shuffleLabels, useSmote=useSmote)
-                # analyze.preProcess()
-                # analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
-                #     kernels=kernels, testSize=TEST_SIZE,
-                #     sigSectionMinLengths=sigSectionMinLengths,
-                #     sigSectionAlphas=sigSectionAlphas,
-                #     minFreqs=minFreqs, maxFreqs=maxFreqs,
-                #     onlyMidValueOptions=onlyMidValueOptions)
+                analyze.preProcess()
+                analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
+                    kernels=kernels, testSize=TEST_SIZE,
+                    sigSectionMinLengths=sigSectionMinLengths,
+                    sigSectionAlphas=sigSectionAlphas,
+                    minFreqs=minFreqs, maxFreqs=maxFreqs,
+                    onlyMidValueOptions=onlyMidValueOptions)
 #                 analyze.getBestEstimators(getRemoteFiles=False)
 #                 analyze.analyzeResults(doPlot=True)
 
             except:
                 print('error with subject {}'.format(subject))
-                # print traceback.format_exc()
+                print traceback.format_exc()
 
-    for subject in subjects:
+    for subject in []:
         try:
             analyze = AnalyzerCentipede(FOLDER, DATA_FILE, subject,
                 procID=PROC_ID, jobsNum=JOBS)
@@ -100,53 +103,48 @@ def readData(shuffleLabelsOptions=[True, False], useSmote=False):
             print traceback.format_exc()
 
 
-def readDataSpacialSW():
+def readDataSpacialSW(shuffleLabelsOptions=[False, True],
+        useSmote=False, groupAnalyze=False):
     xCubeSizes = [5]
     windowsOverlapped = [True]
-    FOLDS = 3
 
     for subject in ['dor']:
-        try:
-            analyze = AnalyzerCentipedeSpacialSWFreqs(
-                FOLDER, DATA_FILE, subject,
-                procID=PROC_ID, multipleByWeights=False,
-                weightsFileName=WEIGHTS_FILE, jobsNum=JOBS)
-#             analyze.preProcess(False, parallel=True)
-#             analyze.splitData(heldoutSize=0)
-#             analyze.shuffleLabels()
-#             analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
-#                 kernels=kernels, testSize=TEST_SIZE,
-#                 sigSectionMinLengths=sigSectionMinLengths,
-#                 sigSectionAlphas=sigSectionAlphas,
-#                 minFreqs=minFreqs, maxFreqs=maxFreqs,
-#                 onlyMidValueOptions=onlyMidValueOptions,
-#                 xCubeSizes=xCubeSizes, windowsOverlapped=windowsOverlapped)
-#             analyze.calculatePredictionsScores()
-            analyze.analyzeResults(threshold=0.5)
-#                 analyze.fullDataAnlysis(permutationNum=500,
-#                     permutationLen=50, doPlotSections=False,
-#                     doPrintBestSections=False,
-#                     maxSurpriseVal=12, plotDataForGivenRange=False)
-#                 analyze.calcHeldOutPrediction()
+        for shuffleLabels in shuffleLabelsOptions:
+            try:
+                analyze = AnalyzerCentipedeSpacialSWFreqs(
+                    FOLDER, DATA_FILE, subject,
+                    procID=PROC_ID, multipleByWeights=False,
+                    weightsFileName=WEIGHTS_FILE, jobsNum=JOBS,
+                    shuffleLabels=shuffleLabels, useSmote=useSmote)
+#                 analyze.preProcess(False, parallel=True)
+                analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
+                    kernels=kernels, testSize=TEST_SIZE,
+                    sigSectionMinLengths=sigSectionMinLengths,
+                    sigSectionAlphas=sigSectionAlphas,
+                    minFreqs=minFreqs, maxFreqs=maxFreqs,
+                    onlyMidValueOptions=onlyMidValueOptions,
+                    xCubeSizes=xCubeSizes, windowsOverlapped=windowsOverlapped)
 
-        except:
-            print('error with subject {}'.format(subject))
-            print traceback.format_exc()
+            except:
+                print('error with subject {}'.format(subject))
+                print traceback.format_exc()
 
 
-def readDataTimeSlidingWindow(shuffleLabelsOptions=[False, True], groupAnalyze=False):
+def readDataTimeSlidingWindow(shuffleLabelsOptions=[False, True],
+                              useSmote=False, groupAnalyze=False):
     windowSizes = [500]
+    windosSizeToShow = 500
     windowsNums = [50]
     results = {}
     resultsShuffle = {}
-    subjects = ['raniB', 'shira', 'TalR2', 'yoni', 'oshrit', 'ohad', 'talia']
+    subjects = SUBJECTS
 
-    for subject in ['raniB']:
+    for subject in []: # SUBJECTS:
         for shuffleLabels in [True]: # shuffleLabelsOptions:
             try:
                 analyze = AnalyzerCentipedeTimeSWFreqs(FOLDER, DATA_FILE,
                     subject, procID=PROC_ID, jobsNum=JOBS,
-                    shuffleLabels=shuffleLabels)
+                    shuffleLabels=shuffleLabels, useSmote=useSmote)
                 # analyze.preProcess()
 #                 analyze.process(foldsNum=FOLDS, testSize=TEST_SIZE,
 #                     n_jobs=JOBS, sigSectionMinLengths=sigSectionMinLengths,
@@ -154,8 +152,7 @@ def readDataTimeSlidingWindow(shuffleLabelsOptions=[False, True], groupAnalyze=F
 #                     minFreqs=minFreqs, maxFreqs=maxFreqs,
 #                     onlyMidValueOptions=onlyMidValueOptions,
 #                     windowSizes=windowSizes, windowsNums=windowsNums,
-#                     kernels=kernels, Cs=Cs, gammas=gammas,
-#                     useSmote=True)
+#                     kernels=kernels, Cs=Cs, gammas=gammas)
                 analyze.getBestEstimators(getRemoteFiles=False)
 #                 results[subject] = analyze.analyzeResults(windowSizes=[500],
 #                     doPlot=False, doSmooth=False)
@@ -163,16 +160,24 @@ def readDataTimeSlidingWindow(shuffleLabelsOptions=[False, True], groupAnalyze=F
                 print('error with subject {}'.format(subject))
                 print traceback.format_exc()
 
-    for subject in ['raniB']:
+    allPs, allxAxis = [], []
+    for subject in subjects:
         try:
             analyze = AnalyzerCentipedeTimeSWFreqs(FOLDER, DATA_FILE,
                 subject, procID=PROC_ID, jobsNum=JOBS)
-            results[subject] = analyze.findSignificantResults(
-                FOLDS, doPlot=True, overwrite=False, windowSizes=[500])
+            ps, xAxis = analyze.findSignificantResults(
+                FOLDS, doPlot=False, doShow=True, overwrite=False,
+                windowSizes=[500])
+            allPs.append(ps)
+            allxAxis.append(xAxis)
         except:
             print('error with subject {}'.format(subject))
             print traceback.format_exc()
 
+#     utils.save((allPs, allxAxis), 'times_group_analysis.pkl')
+    allPs, allxAxis = utils.load('times_group_analysis.pkl')
+    allSubjectsSignificance(allPs, allxAxis, 'Time (sec)',
+        'Significant Timings', subjects)
     if (groupAnalyze):
         groupAnalysis(results)
 
@@ -211,29 +216,29 @@ def readDataFreqsTimeSlidingWindow(shuffleLabels):
             print traceback.format_exc()
 
 
-def readDataFreqsSlidingWindow(shuffleLabelsOptions=[False, True], groupAnalyze=False):
+def readDataFreqsSlidingWindow(shuffleLabelsOptions=[False, True],
+        groupAnalyze=False, useSmote=False):
     windowSizes = [5]
     windowsNums = [50]
     results = {}
     subjects = SUBJECTS
 
-    for subject in subjects:
+    for subject in []:
         for shuffleLabels in shuffleLabelsOptions:
             try:
                 analyze = AnalyzerCentipedeFreqsSW(FOLDER, DATA_FILE,
                     subject, procID=PROC_ID, jobsNum=JOBS,
-                    shuffleLabels=shuffleLabels)
+                    shuffleLabels=shuffleLabels, useSmote=useSmote)
                 print ('readDataFreqsSlidingWindow {}'.format(analyze.defaultFileNameBase))
     #             analyze.preProcess()
-    #             analyze.splitData(heldoutSize=0)
-                analyze.process(foldsNum=FOLDS, testSize=TEST_SIZE,
-                    kernels=kernels, n_jobs=JOBS, Cs=Cs, gammas=gammas,
-                    sigSectionMinLengths=sigSectionMinLengths,
-                    sigSectionAlphas=sigSectionAlphas,
-                    minFreqs=minFreqs, maxFreqs=maxFreqs,
-                    onlyMidValueOptions=onlyMidValueOptions,
-                    windowSizes=windowSizes, windowsNums=windowsNums)
-                analyze.getBestEstimators()
+#                 analyze.process(foldsNum=FOLDS, testSize=TEST_SIZE,
+#                     kernels=kernels, n_jobs=JOBS, Cs=Cs, gammas=gammas,
+#                     sigSectionMinLengths=sigSectionMinLengths,
+#                     sigSectionAlphas=sigSectionAlphas,
+#                     minFreqs=minFreqs, maxFreqs=maxFreqs,
+#                     onlyMidValueOptions=onlyMidValueOptions,
+#                     windowSizes=windowSizes, windowsNums=windowsNums)
+#                 analyze.getBestEstimators()
     #             results[subject] = analyze.analyzeResults(
     #                 freqsSliderRange=(minFreqs[0], maxFreqs[0]),
     #                 plotPerAccFunc=False, doSmooth=False,
@@ -242,9 +247,48 @@ def readDataFreqsSlidingWindow(shuffleLabelsOptions=[False, True], groupAnalyze=
                 print('error with subject {}'.format(subject))
                 print traceback.format_exc()
 
+    allPs, allxAxis = [], []
+    for subject in []:
+        try:
+            analyze = AnalyzerCentipedeFreqsSW(FOLDER, DATA_FILE,
+                subject, procID=PROC_ID, jobsNum=JOBS)
+            ps, xAxis = analyze.findSignificantResults(
+                FOLDS, doPlot=False, overwrite=False)
+            allPs.append(ps)
+            allxAxis.append(xAxis)
+        except:
+            print('error with subject {}'.format(subject))
+            print traceback.format_exc()
+
+    allPs, allxAxis = utils.load('freqs_group_analysis.pkl')
+#     utils.save((allPs, allxAxis), 'freqs_group_analysis.pkl')
+    allSubjectsSignificance(allPs, allxAxis, 'Frequencies (Hz)',
+        'Significant Frequencies', subjects)
+
     resultsShuffle = None
     if (groupAnalyze):
         groupAnalysis(results, resultsShuffle)
+
+
+def allSubjectsSignificance(allPs, allxAxis, xlabel, title, subjects=SUBJECTS):
+    for acc in ['auc', 'gmean']:
+        ys, xmins, xmaxs = [], [], []
+        for k, (ps, xAxis) in enumerate(zip(allPs, allxAxis)):
+            sections = su.findSectionSmallerThan(ps[acc], 0.054, 1, True, True)
+            for sec in sections:
+                ys.append(k + 1)
+                xmins.append(xAxis[sec[0]])
+                xmaxs.append(xAxis[sec[1]])
+                print(subjects[k], xAxis[sec[0]], xAxis[sec[1]])
+        plots.plt.hlines(ys, xmins, xmaxs)
+        plots.plt.xlim([0, max([max(xAxis) for xAxis in allxAxis])])
+        plots.plt.xlabel(xlabel)
+        plots.plt.ylabel('Subjects')
+        plots.plt.ylim([0, len(SUBJECTS)])
+        plots.plt.title('{} ({})'.format(title, acc))
+        plots.plt.gca().set_yticks(range(1, len(subjects) + 2))
+        plots.plt.gca().set_yticklabels(subjects)
+        plots.plt.show()
 
 
 def groupAnalysis(results):
@@ -285,9 +329,9 @@ if __name__ == '__main__':
         print('cpuNum = %d' % JOBS)
 
     t = utils.ticToc()
-#     readData()
-#     readDataSpacialSW()
-    readDataTimeSlidingWindow()
+#     readData(useSmote=True)
+    readDataSpacialSW()
+#     readDataTimeSlidingWindow()
 #     readDataFreqsSlidingWindow()
     howMuchTime = utils.howMuchTimeFromTic(t)
     utils.sendResultsEmail('analyzer is done! {}'.format(howMuchTime),

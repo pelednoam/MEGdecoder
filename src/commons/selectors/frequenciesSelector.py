@@ -3,6 +3,7 @@ Created on Nov 20, 2014
 
 @author: noampeled
 '''
+import numpy as np
 from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.datasets.base import Bunch
 from src.commons.utils import sectionsUtils
@@ -42,7 +43,15 @@ class FrequenciesSelector():
                 self.minFreq, self.maxFreq, cvIndices=cvIndices,
                 timeIndices=timeIndices, weights=weights)
         else:
-            self.freqs, pss = preCalcFreqs, preCalcPSS
+            C = X.shape[2] if weights is None else weights.shape[0]
+            freqs, ps = freqsUtils.cutPS(preCalcPSS[0, :, :].squeeze(), preCalcFreqs, self.minFreq, self.maxFreq)
+            pss = np.empty((ps.shape[0], ps.shape[1], C))
+            for c in range(C):
+                ps = preCalcPSS[c, :, :].squeeze()
+                _, ps = freqsUtils.cutPS(ps, preCalcFreqs, self.minFreq, self.maxFreq)
+                pss[:, :, c] = ps
+            self.freqs, pss = freqs, pss
+
         features = sectionsUtils.concatenateFeaturesFromSections(
             pss, self.sections, self.onlyMidValue)
         return features

@@ -5,16 +5,19 @@ Created on Nov 20, 2014
 '''
 
 from src.commons.analyzer.analyzer import Analyzer
-from src.commons.analyzerSpacialSlidingWindow.analyzerSpatialSWSelector import \
-    AnalyzerSpacialSWSelector
+from src.commons.analyzerSpacialSlidingWindow.analyzerSpatialSWSelector \
+    import AnalyzerSpacialSWSelector
 from src.commons.selectors.frequenciesSelector import FrequenciesSelector
+from src.commons.sliders.spacialSliders import SpatialWindowSlider
 from src.commons.utils import mpHelper
+from src.commons.utils import tablesUtils as tabu
+from src.commons.utils import utils
+from src.commons.utils import sectionsUtils as su
 
+import numpy as np
 from sklearn.datasets.base import Bunch
 import itertools
 from collections import namedtuple
-from src.commons.utils import tablesUtils as tabu
-from src.commons.utils import utils
 
 
 class AnalyzerSpacialSWFreqsSelector(AnalyzerSpacialSWSelector):
@@ -27,38 +30,69 @@ class AnalyzerSpacialSWFreqsSelector(AnalyzerSpacialSWSelector):
         if ('zCubeSizes' not in p):
             p.zCubeSizes = p.xCubeSizes
 
-        if (not tabu.DEF_TABLES):
-            weightsDict = utils.loadMatlab(
-                self.weightsFullFileName(self.weightsFileName))
-            weights = weightsDict[self.weightsDicKey]
-        else:
-            weights = None
-
-        allCTSParams = list(itertools.product(*(p.sigSectionMinLengths,
-            p.sigSectionAlphas)))
-        paramsNum = len(list(p.cv)) * len(allCTSParams)
+        weights = self.loadWeights()
         xlim, ylim, zlim, xstep, ystep, zstep = self.getMetaParameters(p)
+        cubesParams = list(itertools.product(*(p.xCubeSizes, p.yCubeSizes,
+            p.zCubeSizes, p.windowsOverlapped)))
+        totalCubesNum = 0
+        for xCubeSize, yCubeSize, zCubeSize, windowsOverlapped in cubesParams:
+            spacialSlider = SpatialWindowSlider(
+                weights.shape[0], xlim, ylim, zlim,
+                xstep, xCubeSize, ystep, yCubeSize,
+                zstep, zCubeSize, windowsOverlapped)
+            cubesNum = spacialSlider.calcCubesNum(weights)
+            print('xCubeSize {}, yCubeSize {}, zCubeSize {}, windowsOverlapped {}: cubes num: {}'.format(xCubeSize, yCubeSize, zCubeSize, windowsOverlapped, cubesNum))
+            totalCubesNum += cubesNum
+        paramsNum = len(list(p.cv)) * len(cubesParams) * totalCubesNum
         index = 0
+        T = p.x.shape[1]
+        print('T is {}'.format(T))
+        timeStep = self.calcTimeStep(T)
+        pss, freqs = su.preCalcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
+            timeStep)
+        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
+        trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
         for fold, (trainIndex, testIndex) in enumerate(p.cv):
-            x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-            y = None if tabu.DEF_TABLES else p.y
-            trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
-            for sigSectionMinLength, sigSectionAlpha in allCTSParams:
-                params.append(Bunch(
-                    x=x, y=y, trainIndex=trainIndex, testIndex=testIndex,
-                    trialInfo=trialsInfo, fold=fold, weights=weights,
-                    sigSectionMinLength=sigSectionMinLength,
-                    sigSectionAlpha=sigSectionAlpha,
-                    minFreqs=p.minFreqs, maxFreqs=p.maxFreqs,
-                    onlyMidValueOptions=p.onlyMidValueOptions,
-                    xlim=xlim, ylim=ylim, zlim=zlim,
-                    xstep=xstep, ystep=ystep, zstep=zstep,
-                    xCubeSizes=p.xCubeSizes, yCubeSizes=p.yCubeSizes,
-                    zCubeSizes=p.zCubeSizes,
-                    windowsOverlapped=p.windowsOverlapped,
-                    kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
-                    index=index, paramsNum=paramsNum))
-                index += 1
+            pssTrain = pss[:, trainIndex, :]
+            pssTest = pss[:, testIndex, :]
+            shuffleIndices = None
+            if (self.shuffleLabels):
+                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                    self.useSmote)
+            for xCubeSize, yCubeSize, zCubeSize, windowsOverlapped in \
+                    cubesParams:
+                spacialSlider = SpatialWindowSlider(
+                    weights.shape[0], xlim, ylim, zlim,
+                    xstep, xCubeSize, ystep, yCubeSize,
+                    zstep, zCubeSize, windowsOverlapped)
+                for cubeIndex, voxelIndices in \
+                        enumerate(spacialSlider.cubesGenerator()):
+                    cubeWeights = weights[voxelIndices, :]
+                    if (np.all(cubeWeights == 0)):
+                        continue
+                    cubeWeights, zeroLinesIndices = utils.removeZerosLines(
+                        cubeWeights)
+                    voxelIndices = voxelIndices[zeroLinesIndices]
+                    params.append(Bunch(
+                        x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
+                        trialsInfo=trialsInfo, fold=fold, weights=weights,
+                        pssTrain=mpHelper.ForkedData(pssTrain),
+                        pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
+                        sigSectionMinLengths=p.sigSectionMinLengths,
+                        sigSectionAlphas=p.sigSectionAlphas,
+                        minFreqs=p.minFreqs, maxFreqs=p.maxFreqs,
+                        onlyMidValueOptions=p.onlyMidValueOptions,
+                        xlim=xlim, ylim=ylim, zlim=zlim,
+                        xstep=xstep, ystep=ystep, zstep=zstep,
+                        xCubeSize=xCubeSize, yCubeSize=yCubeSize,
+                        zCubeSize=zCubeSize,
+                        windowsOverlapped=p.windowsOverlapped,
+                        cubeIndex=cubeIndex, voxelIndices=voxelIndices,
+                        cubeWeights=cubeWeights,
+                        kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
+                        index=index, paramsNum=paramsNum,
+                        shuffleIndices=shuffleIndices))
+                    index += 1
         return params
 
     def getMetaParameters(self, p={}):
@@ -78,22 +112,17 @@ class AnalyzerSpacialSWFreqsSelector(AnalyzerSpacialSWSelector):
         return xlim, ylim, zlim, xstep, ystep, zstep
 
     def parametersGenerator(self, p):
-        return itertools.product(*(p.minFreqs, p.maxFreqs,
-            p.onlyMidValueOptions, p.xCubeSizes, p.yCubeSizes, p.zCubeSizes,
-            p.windowsOverlapped))
+        for hp in itertools.product(*(p.minFreqs, p.maxFreqs,
+            p.sigSectionMinLengths, p.sigSectionAlphas,
+            p.onlyMidValueOptions)):
+                yield self.createParamsObj(hp)
 
-    def createParamsObj(self, paramsTuple, p):
-        (minFreq, maxFreq, onlyMidValue, xCubeSize, yCubeSize, zCubeSize,
-            windowsOverlapped) = paramsTuple
-        params = Bunch(minFreq=minFreq, maxFreq=maxFreq,
-            onlyMidValue=onlyMidValue,
-            sigSectionMinLength=p.sigSectionMinLength,
-            sigSectionAlpha=p.sigSectionAlpha,
-            xCubeSize=xCubeSize, yCubeSize=yCubeSize, zCubeSize=zCubeSize,
-            windowsOverlapped=windowsOverlapped)
-#         for k, v in meta.iteritems():
-#             params[k] = v
-        return params
+    def createParamsObj(self, paramsTuple):
+        (minFreq, maxFreq, onlyMidValue, sigSectionMinLength,
+         sigSectionAlpha) = paramsTuple
+        return Bunch(minFreq=minFreq, maxFreq=maxFreq,
+            onlyMidValue=onlyMidValue, sigSectionMinLength=sigSectionMinLength,
+            sigSectionAlpha=sigSectionAlpha)
 
     def selectorFactory(self, timeStep, params, maxSurpriseVal=20,
                         doPlotSections=False):

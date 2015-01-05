@@ -11,13 +11,13 @@ from src.commons.utils import mpHelper
 from src.commons.utils import utils
 from src.commons.utils import freqsUtils
 from src.commons.utils import tablesUtils as tabu
+from src.commons.utils import sectionsUtils as su
 
 import numpy as np
 from collections import namedtuple
 import itertools
 import os
 from sklearn.datasets.base import Bunch
-import random
 
 
 class AnalyzerFreqsSelector(AnalyzerSelector):
@@ -26,29 +26,26 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
         p = p.merge(p.kwargs)
         params = []
         paramsNum = len(list(p.cv))
+        T = p.x.shape[1]
+        print('T is {}'.format(T))
+        timeStep = self.calcTimeStep(T)
+        pss, freqs = su.preCalcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
+            timeStep)
         index = 0
-        useSmote = p.get('useSmote', False)
+        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
+        trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
         for fold, (trainIndex, testIndex) in enumerate(p.cv):
-            x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-            trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
+            pssTrain = pss[:, trainIndex, :]
+            pssTest = pss[:, testIndex, :]
             shuffleIndices = None
             if (self.shuffleLabels):
-                print('Shuffling the labels')
-                if (useSmote):
-                    # Create a shuffle indices. The length is twice the length
-                    # of the majority class trials number
-                    # Should do it here, because the shuffling can be done only
-                    # after the boosting, and we want to use the same shuffling
-                    # for every fold
-                    cnt = utils.count(p.y[trainIndex])
-                    majority = max([cnt[0], cnt[1]])
-                    shuffleIndices = np.random.permutation(range(majority * 2))
-                else:
-                    # Just shuffle the labels
-                    random.shuffle(p.y)
+                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                    self.useSmote)
             params.append(Bunch(
                 x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
                 trialsInfo=trialsInfo, fold=fold, paramsNum=paramsNum,
+                pssTrain=mpHelper.ForkedData(pssTrain),
+                pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
                 sigSectionMinLengths=p.sigSectionMinLengths,
                 sigSectionAlphas=p.sigSectionAlphas, minFreqs=p.minFreqs,
                 maxFreqs=p.maxFreqs, index=index,

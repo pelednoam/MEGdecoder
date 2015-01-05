@@ -37,16 +37,17 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
         timeStep = self.calcTimeStep(T)
         cv = list(p.cv)
         paramsNum = len(cv) * totalWindowsNum
+        pss, freqs = su.preCalcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
+            timeStep)
+        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
+        trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
         for fold, (trainIndex, testIndex) in enumerate(cv):
-            pssTrain, freqs = su.preCalcPS(p.x, min(p.minFreqs),
-                max(p.maxFreqs), timeStep, trainIndex)
-            pssTest, _ = su.preCalcPS(p.x, min(p.minFreqs),
-                max(p.maxFreqs), timeStep, testIndex)
-            x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-            trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
+            pssTrain = pss[:, trainIndex, :]
+            pssTest = pss[:, testIndex, :]
+            shuffleIndices = None
             if (self.shuffleLabels):
-                print('Shuffling the labels')
-                random.shuffle(p.y)
+                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                    self.useSmote)
             for minFreq, maxFreq, windowSize, windowsNum in windowsGenerator:
                 freqsSlider = FreqsWindowSlider(minFreq, maxFreq,
                     windowSize, windowsNum)
@@ -63,7 +64,8 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
                         sigSectionAlphas=p.sigSectionAlphas, index=index,
                         onlyMidValueOptions=p.onlyMidValueOptions,
                         windowSizes=p.windowSizes, windowsNums=p.windowsNums,
-                        kernels=p.kernels, Cs=p.Cs, gammas=p.gammas))
+                        kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
+                        shuffleIndices=shuffleIndices))
                     index += 1
         return params
 
@@ -120,6 +122,64 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
         return Bunch(minFreq=minFreq, maxFreq=maxFreq,
             onlyMidValue=onlyMidValue, sigSectionMinLength=sigSectionMinLength,
             sigSectionAlpha=sigSectionAlpha)
+
+    def resultsKeys(self, p):
+        return p.windowSize, p.minFreq
+
+    def findSignificantResults(self, foldsNum=0, doShow=True, windowSizes=None,
+            doPlot=True, printResults=False, overwrite=False):
+        self.shuffleLabels = True
+        bestEstimatorsShuffle = utils.load(
+            self.bestEstimatorsPerWindowFileName, overwrite=overwrite)
+        self.shuffleLabels = False
+        bestEstimators = utils.load(
+            self.bestEstimatorsPerWindowFileName, overwrite=overwrite)
+        allScores, allPs = {}, {}
+        for (accFunc, bestEstimatorPerWindow), \
+                (_, bestEstimatorShufflePerWindow) in \
+                zip(bestEstimators.iteritems(),
+                    bestEstimatorsShuffle.iteritems()):
+            scoresGenerator = self.scoresGeneratorPerWindow(
+                bestEstimatorPerWindow, printResults=printResults, meanScores=False,
+                estimatorKeys=windowSizes)
+            scoresGeneratorShuffle = self.scoresGeneratorPerWindow(
+                bestEstimatorShufflePerWindow, printResults=printResults, meanScores=False,
+                estimatorKeys=windowSizes)
+
+            for (scores, _, _, _, windowSize, bep), \
+                (scoresShuffle, _, _, _, _, _) in \
+                    zip(scoresGenerator, scoresGeneratorShuffle):
+                print('window size {}'.format(windowSize))
+                windowsNum = scores.shape[0]
+                slider = FreqsWindowSlider(0, 80, 5, 50)
+                xAxis = np.array([x[0] for x in slider.windowsGenerator()])
+                ps = []
+                print(scores.shape, scoresShuffle.shape)
+                for windowScores, windowScoresShuffle in zip(scores, scoresShuffle):
+                    ps.append(utils.ttestGreaterThan(windowScores, windowScoresShuffle))
+
+#                 scores = MLUtils.savitzkyGolaySmooth(scores, smoothWindowSize,
+#                     smoothOrder)
+                ps = np.array(ps)
+                allScores[accFunc] = scores
+                allPs[accFunc] = ps
+                if (not np.all([len(s) for s in scores] == foldsNum) and foldsNum != 0):
+                    print('Not all the result from all the folds were collected!')
+                # In case we don't have the results from all the folds
+                scoresMean, scoresStd = [np.mean(s) for s in scores], \
+                    [np.std(s) for s in scores]
+                scoresShuffleMean, scoresShuffleStd = [np.mean(s) for s in
+                    scoresShuffle], [np.std(s) for s in scoresShuffle]
+
+                if (doPlot):
+                    plots.graph2(xAxis, scoresMean, scoresShuffleMean,
+                        yerrs=[scoresStd, scoresShuffleStd],
+                        xlabel='Freqs (Hz)', ylabel='Accuracy', title=accFunc,
+                        labels=['scores', 'shuffle'], doPlot=False, fileName='{}_FreqsAccuracy'.format(self.subject))
+                    plots.graph2(xAxis, ps, np.ones(ps.shape) * 0.05, xlabel='Freqs (Hz)',
+                        ylabel='Significance', markers=('b-', 'r--'), doPlot=False, fileName='{}_FreqsAccuracySignificance'.format(self.subject))
+
+        return allPs, xAxis
 
 
     def resultItem(self, selector, p, res, hp, ytest):
@@ -225,6 +285,7 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
         plots.plt.savefig(self.figureFileName(fileName))
         if (doShow):
             plots.plt.show()
+
 
     @property
     def selectorName(self):

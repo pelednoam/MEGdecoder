@@ -8,6 +8,7 @@ from src.commons.sliders.timeSliders import TimeWindowSlider
 from src.commons.utils import utils
 from src.commons.utils import MLUtils
 from src.commons.utils import plots
+from src.commons.utils import sectionsUtils as su
 
 from collections import defaultdict
 from sklearn.datasets.base import Bunch
@@ -31,6 +32,8 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
             print('{} out of {}'.format(p.index, p.paramsNum))
             T = x.shape[1]
             timeStep = self.calcTimeStep(T)
+            pssTrain = p.pssTrain.value
+            pssTest = p.pssTest.value
             bestScore = Bunch(auc=0.5, gmean=0.5)
             bestParams = Bunch(auc=None, gmean=None)
             timeSlider = TimeWindowSlider(0, p.windowSize, p.windowsNum, T)
@@ -44,9 +47,11 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                     x, p.testIndex, returnIndices=True)
                 selector = self.selectorFactory(timeStep, hp)
                 xtrainTimedFeatures = selector.fit_transform(
-                    x, ytrain, p.trainIndex, xtrainTimedIndices)
+                    x, ytrain, p.trainIndex, xtrainTimedIndices,
+                    preCalcPSS=pssTrain, preCalcFreqs=p.freqs)
                 xtestTimedFeatures = selector.transform(x, p.testIndex,
-                    xtestTimedIndices)
+                    xtestTimedIndices, preCalcPSS=pssTest,
+                    preCalcFreqs=p.freqs)
                 if (xtrainTimedFeatures.shape[0] > 0 and
                         xtestTimedFeatures.shape[0] > 0):
                     if (self.useSmote):
@@ -262,6 +267,10 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
 #                 scores = MLUtils.savitzkyGolaySmooth(scores, smoothWindowSize,
 #                     smoothOrder)
                 ps = np.array(ps)
+                secs = su.findSectionSmallerThan(ps, 0.054, 1, True, True)
+                print('significant sections:')
+                for sec in secs:
+                    print(xAxis[sec[0]], xAxis[sec[1]])
                 allScores[accFunc] = scores
                 allPs[accFunc] = ps
                 if (not np.all([len(s) for s in scores] == foldsNum) and foldsNum != 0):
@@ -276,13 +285,13 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                     plots.graph2(xAxis, scoresMean, scoresShuffleMean,
                         yerrs=[scoresStd, scoresShuffleStd],
                         xlabel='Time (sec)', ylabel='Accuracy', title=accFunc,
-                        labels=['scores', 'shuffle'], doPlot=True)
-                    plots.graph2(xAxis, ps, np.ones(ps.shape) * 0.05, xlabel='Time (sec)',
-                        ylabel='Significance', markers=('b-', 'r--'), doPlot=True)
+                        labels=['scores', 'shuffle'], doPlot=doShow,
+                        fileName=self.figureFileName('timeSWAccuracy.jpg'))
+                    plots.graph2(xAxis, ps, np.ones(ps.shape) * 0.05,
+                        xlabel='Time (sec)', ylabel='Significance',
+                        markers=('b-', 'r--'), doPlot=doShow,
+                        fileName=self.figureFileName('timeSWSignificance.jpg'))
 
-#         if (doPlot):
-#             self._analyzeResultsPlot(labels, accFunc,
-#                 windowSize, doShow, False)
 
         return allPs, xAxis
 

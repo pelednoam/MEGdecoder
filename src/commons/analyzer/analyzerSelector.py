@@ -16,6 +16,7 @@ import os
 import numpy as np
 from sklearn.datasets.base import Bunch
 from abc import abstractmethod
+import random
 
 
 class AnalyzerSelector(Analyzer):
@@ -34,7 +35,6 @@ class AnalyzerSelector(Analyzer):
         params = self._prepareCVParams(utils.BunchDic(locals()))
         for p in params:
             p.overwriteResultsFile = kwargs.get('overwriteResultsFile', True)
-            p.useSmote = kwargs.get('useSmote', True)
         params = utils.splitList(params, self.jobsNum)
         func = self._preparePredictionsParameters
         if (self.jobsNum == 1):
@@ -114,6 +114,22 @@ class AnalyzerSelector(Analyzer):
         ytrain = y[p.trainIndex]
         ytest = y[p.testIndex]
         return x, ytrain, ytest, trialsInfo, weights
+
+    def permutateTheLabels(self, y, trainIndex, useSmote):
+        print('Shuffling the labels')
+        if (useSmote):
+            # Create a shuffle indices. The length is twice the length
+            # of the majority class trials number
+            # Should do it here, because the shuffling can be done only
+            # after the boosting, and we want to use the same shuffling
+            # for every fold
+            cnt = utils.count(y[trainIndex])
+            majority = max([cnt[0], cnt[1]])
+            shuffleIndices = np.random.permutation(range(majority * 2))
+        else:
+            shuffleIndices = np.random.permutation(range(len(y)))
+            y = y[shuffleIndices]
+        return y, shuffleIndices
 
     def scorerFoldsResultsItem(self, score, probsScore, rates, res,
                                predRes, auc, gmean):

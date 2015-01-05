@@ -7,7 +7,6 @@ Created on Nov 25, 2013
 from abc import abstractmethod
 import numpy as np
 import os
-import random
 from path3 import path
 
 from sklearn import feature_selection
@@ -15,8 +14,9 @@ from sklearn.cross_validation import StratifiedShuffleSplit
 from sklearn.datasets.base import Bunch
 
 import itertools
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 import operator
+import traceback
 
 from src.commons.utils import utils
 from src.commons.utils import MLUtils
@@ -385,28 +385,32 @@ class Analyzer(object):
 
     def _predict(self, p, bs, bp, hp, verbose=False):
         for kernel, C, gamma in itertools.product(*(p.kernels, p.Cs, p.gammas)):
-            svc = GSS.TSVC(C=C, kernel=kernel, gamma=gamma)
-            svc.fit(p.xtrainFeatures, p.ytrain)
-            probs = svc.predict(p.xtestFeatures, calcProbs=True)
-            ypred = MLUtils.probsToPreds(probs)
-            auc = sf.AUCScore(p.ytest, probs)
-            gmean = sf.gmeanScore(p.ytest, ypred)
-            # Don't let results with rates=(0,1) gets in
-            if (auc > bs.auc and gmean > 0):
-                bs.auc = auc
-                bp.auc = hp
-                bp.auc.kernel, bp.auc.C, bp.auc.gamma = kernel, C, gamma
-                bp.auc.rates = sf.calcRates(p.ytest, ypred)
-                if (verbose):
-                    print('best auc ', bs.auc, bp.auc)
-            if (gmean > bs.gmean):
-                bs.gmean = gmean
-                bp.gmean = hp
-                bp.gmean.kernel, bp.gmean.C, bp.gmean.gamma = kernel, C, gamma
-                bp.gmean.rates = sf.calcRates(p.ytest, ypred)
-                if (verbose):
-                    print('best gmean ', bs.gmean, bp.gmean)
-
+            try:
+                svc = GSS.TSVC(C=C, kernel=kernel, gamma=gamma)
+                svc.fit(p.xtrainFeatures, p.ytrain)
+                probs = svc.predict(p.xtestFeatures, calcProbs=True)
+                ypred = MLUtils.probsToPreds(probs)
+                auc = sf.AUCScore(p.ytest, probs)
+                gmean = sf.gmeanScore(p.ytest, ypred)
+                # Don't let results with rates=(0,1) gets in
+                if (auc > bs.auc and gmean > 0):
+                    bs.auc = auc
+                    bp.auc = hp
+                    bp.auc.kernel, bp.auc.C, bp.auc.gamma = kernel, C, gamma
+                    bp.auc.rates = sf.calcRates(p.ytest, ypred)
+                    if (verbose):
+                        print('best auc ', bs.auc, bp.auc)
+                if (gmean > bs.gmean):
+                    bs.gmean = gmean
+                    bp.gmean = hp
+                    bp.gmean.kernel, bp.gmean.C, bp.gmean.gamma = kernel, C, gamma
+                    bp.gmean.rates = sf.calcRates(p.ytest, ypred)
+                    if (verbose):
+                        print('best gmean ', bs.gmean, bp.gmean)
+            except:
+                print('error with _predict!')
+                utils.dump((p, bs, bp, hp, kernel, C, gamma), '_predict', utils.DUMPER_FOLDER)
+                print traceback.format_exc()
 
 
 #     def calculatePredictionsScores(self, saveResults=False):
@@ -927,7 +931,7 @@ class Analyzer(object):
         fileName = '{}/{}{}{}_{}_{}_{}{}_sub_{}.npz'.format(
             folder, self.indetifier,
             '_shuffled' if self.shuffleLabels and not noShuffle else '',
-            'smote' if self.useSmote else '',
+            'smote' if self.useSmote and not noShuffle else '',
             self.PROCS_NAMES[self.procID],
             self.getStepName(stepID), self.selectorName,
             '_Weights_{}'.format(self.weightsFileName) \
@@ -1081,7 +1085,8 @@ class Analyzer(object):
             return (self.hdfGroup.x, self.hdfGroup.y,
                     self.hdfGroup.trialsInfo)
         else:
-            dic = utils.load(self.dataFileName(stepID, noShuffle=True), useNumpy=True)
+            dic = utils.load(self.dataFileName(stepID, noShuffle=True),
+                useNumpy=True)
             return (dic['x'], dic['y'], dic['trialsInfo'])
 
     def saveXY(self, x, y, stepID, trialsInfo=None):

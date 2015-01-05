@@ -36,6 +36,7 @@ from sklearn.datasets.base import Bunch
 import traceback
 import string
 import fnmatch
+import inspect
 
 # for parmap
 import multiprocessing
@@ -962,9 +963,13 @@ def generateRandomString(N):
 def dump(objToDump, functionName='', dumpFolder=''):
     if (dumpFolder == ''):
         dumpFolder = DUMPER_FOLDER
+    if (functionName == ''):
+        stack = inspect.stack()
+        className = stack[1][0].f_locals["self"].__class__.__name__
+        methodName = stack[1][0].f_code.co_name
+        functionName = '{}.{}'.format(className, methodName)
     dumpID = generateRandomString(5)
-    print('Error{}! {}'.format(' in {}'.format(functionName) if \
-        functionName != '' else '', dumpID))
+    print('Error in {}! {}'.format(functionName, dumpID))
     errStr = traceback.format_exc()
     print(errStr)
     dumpFileName = '{}_dump_{}.pkl'.format(functionName, dumpID)

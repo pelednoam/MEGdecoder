@@ -9,7 +9,6 @@ from src.commons.analyzer.analyzerSelector import AnalyzerSelector
 from src.commons.selectors.timeSelector import TimeSelector
 from src.commons.utils import mpHelper
 from src.commons.utils import utils
-from src.commons.utils import MLUtils
 from src.commons.utils import tablesUtils as tabu
 
 from collections import namedtuple
@@ -26,17 +25,21 @@ class AnalyzerTimeSelector(AnalyzerSelector):
             p.sigSectionAlphas)))
         paramsNum = len(list(p.cv)) * len(allCTSParams)
         index = 0
+        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
         for fold, (trainIndex, testIndex) in enumerate(p.cv):
-            x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-            for sigSectionMinLength, sigSectionAlpha in allCTSParams:
-                params.append(Bunch(
-                    x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
-                    trialInfo=p.trialsInfo, fold=fold, paramsNum=paramsNum,
-                    sigSectionMinLength=sigSectionMinLength,
-                    sigSectionAlpha=sigSectionAlpha, index=index,
-                    onlyMidValueOptions=p.onlyMidValueOptions,
-                    kernels=p.kernels, Cs=p.Cs, gammas=p.gammas))
-                index += 1
+            shuffleIndices = None
+            if (self.shuffleLabels):
+                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                    self.useSmote)
+            params.append(Bunch(
+                x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
+                trialInfo=p.trialsInfo, fold=fold, paramsNum=paramsNum,
+                sigSectionMinLengths=p.sigSectionMinLengths,
+                sigSectionAlphas=p.sigSectionAlphas, index=index,
+                onlyMidValueOptions=p.onlyMidValueOptions,
+                kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
+                shuffleIndices=shuffleIndices))
+            index += 1
         return params
 
     def parametersGenerator(self, p):

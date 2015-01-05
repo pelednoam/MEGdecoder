@@ -19,60 +19,57 @@ import traceback
 
 class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
 
-    def _preparePredictionsParameters(self, p, overwriteResultsFile=True):
-        resultsFileName, doCalc = self.checkExistingResultsFile(p)
-        if (not doCalc):
-            return resultsFileName
-        x, ytrain, ytest, p.trialsInfo, _ = self._preparePPInit(p)
-
-        results = []
-        T = x.shape[1]
-        timeStep = self.calcTimeStep(T)
-
-        for hyperParams in self.parametersGenerator(p):
-            hyperParams = self.createParamsObj(hyperParams, p)
-            print(hyperParams)
-            spacialSlider = SpatialWindowSlider(
-                p.weights.shape[0], p.xlim, p.ylim, p.zlim,
-                p.xstep, hyperParams.xCubeSize,
-                p.ystep, hyperParams.yCubeSize,
-                p.zstep, hyperParams.zCubeSize,
-                hyperParams.windowsOverlapped)
-            cubesNum = spacialSlider.calcCubesNum(p.weights)
-            cube = 0
-            for hyperParams.cubeIndex, hyperParams.voxelIndices in \
-                enumerate(spacialSlider.cubesGenerator()):
-                cubeWeights = p.weights[hyperParams.voxelIndices, :]
-                if (np.all(cubeWeights == 0)):
+    def _preparePredictionsParameters(self, ps):
+        resultsFileNames = []
+        for p in ps:
+            try:
+                t = utils.ticToc()
+                resultsFileName, doCalc = self.checkExistingResultsFile(p)
+                resultsFileNames.append(resultsFileName)
+                if (not doCalc):
                     continue
-                cubeWeights, zeroLinesIndices = utils.removeZerosLines(
-                    cubeWeights)
-                hyperParams.voxelIndices = hyperParams.voxelIndices[
-                    zeroLinesIndices]
-                cube += 1
-                print('cube {}/{}'.format(cube, cubesNum))
-                selector = self.selectorFactory(timeStep, hyperParams)
-                xtrainTimedFeatures = selector.fit_transform(
-                    x, ytrain, p.trainIndex, None, cubeWeights)
-                xtestTimedFeatures = selector.transform(x, p.testIndex,
-                    None, cubeWeights)
-                if (xtrainTimedFeatures.shape[0] == 0 or
-                    xtestTimedFeatures.shape[0] == 0):
-                    res = None
-                else:
-                    xtrainTimedFeaturesBoost, ytrainBoost = MLUtils.boost(
-                        xtrainTimedFeatures, ytrain)
-                    res = self._predict(Bunch(
-                        xtrainFeatures=xtrainTimedFeaturesBoost,
-                        xtestFeatures=xtestTimedFeatures,
-                        ytrain=ytrainBoost, kernels=p.kernels,
-                        Cs=p.Cs, gammas=p.gammas))
+                x, ytrain, ytest, p.trialsInfo, _ = self._preparePPInit(p)
+                print('{} out of {}'.format(p.index, p.paramsNum))
 
-                results.append(self.resultItem(
-                    selector, p, res, hyperParams, ytest))
+                pssTrain = p.pssTrain.value
+                pssTest = p.pssTest.value
+                T = x.shape[1]
+                timeStep = self.calcTimeStep(T)
+                bestScore = Bunch(auc=0.5, gmean=0.5)
+                bestParams = Bunch(auc=None, gmean=None)
+                externalParams = Bunch(fold=p.fold, xCubeSize=p.xCubeSize,
+                    yCubeSize=p.yCubeSize, zCubeSize=p.zCubeSize,
+                    windowsOverlapped=p.windowsOverlapped,
+                    xlim=p.xlim, ylim=p.ylim, zlim=p.zlim,
+                    cubeIndex=p.cubeIndex, voxelIndices=p.voxelIndices)
+                for hp in self.parametersGenerator(p):
+                    hp.voxelIndices = p.voxelIndices
+                    selector = self.selectorFactory(timeStep, hp)
+                    xtrainFeatures = selector.fit_transform(
+                        x, ytrain, p.trainIndex, None, p.cubeWeights,
+                        preCalcPSS=pssTrain, preCalcFreqs=p.freqs)
+                    xtestFeatures = selector.transform(x, p.testIndex,
+                        None, p.cubeWeights, preCalcPSS=pssTest,
+                        preCalcFreqs=p.freqs)
+                    if (xtrainFeatures.shape[0] > 0 and
+                            xtestFeatures.shape[0] > 0):
+                        xtrainFeaturesBoost, ytrainBoost = MLUtils.boost(
+                            xtrainFeatures, ytrain)
+                        self._predict(Bunch(
+                            xtrainFeatures=xtrainFeaturesBoost,
+                            xtestFeatures=xtestFeatures,
+                            ytrain=ytrainBoost, ytest=ytest,
+                            kernels=p.kernels, Cs=p.Cs, gammas=p.gammas),
+                            bestScore, bestParams, hp)
+            except:
+                utils.dump(p,
+                    'AnalyzerSpacialSWSelector._preparePredictionsParameters',
+                    utils.DUMPER_FOLDER)
 
-        utils.save(results, resultsFileName)
-        return resultsFileName
+            utils.save((externalParams, bestScore, bestParams), resultsFileName)
+            howMuchTime = utils.howMuchTimeFromTic(t)
+            print('finish {}, {}'.format(externalParams, bestScore, howMuchTime))
+        return resultsFileNames
 
     def scorerFoldsResultsKey(self, res):
         return (res.xCubeSize, res.yCubeSize, res.zCubeSize)

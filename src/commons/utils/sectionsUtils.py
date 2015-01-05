@@ -40,6 +40,7 @@ def preCalcPS(X, minFreq, maxFreq, timeStep, cvIndices=None,
         xc = calcSlice(X, c, cvIndices, timeIndices, weights)
         freqs, ps = freqsUtils.calcPS(xc, timeStep, minFreq, maxFreq)
         pss[c] = ps
+    pss = np.array(pss)
     return pss, freqs
 
 
@@ -65,7 +66,8 @@ def findSigSectionsPSInPValues(X, y, selector, timeStep, minFreq, maxFreq,
                     freqs, ps = freqsUtils.calcPS(x[:, c], timeStep, minFreq, maxFreq)
         else:
             freqs = preCalcFreqs
-            ps = preCalcPSS[c]
+            ps = preCalcPSS[c, :, :].squeeze()
+            freqs, ps = freqsUtils.cutPS(ps, freqs, minFreq, maxFreq)
 
         model = selector.fit(ps, y)
         sigSections = findSectionSmallerThan(model.pvalues_, alpha,
@@ -76,10 +78,14 @@ def findSigSectionsPSInPValues(X, y, selector, timeStep, minFreq, maxFreq,
             if (doPlotSections):
                 plot2PSAndSctions(freqs, model, sigSections, ps, y, alpha,
                     minFreq, maxFreq, maxSurpriseVal, 'Frequency (Hz)', labels)
-        if (c == 0):
-            pss = np.empty((ps.shape[0], ps.shape[1], C))
-            pss.fill(np.NaN)
-        pss[:, :, c] = ps
+        if (preCalcPSS is None):
+            if (c == 0):
+                pss = np.empty((ps.shape[0], ps.shape[1], C))
+                pss.fill(np.NaN)
+            pss[:, :, c] = ps
+
+    if (preCalcPSS is not None):
+        pss = preCalcPSS
 
     if (sectionsKeys is None):
         return sections, pss, freqs
@@ -106,25 +112,33 @@ def calcSlice(X, c, cvIndices, timeIndices, weights):
     return xc
 
 
-def findSectionSmallerThan(x, threshold, sigSectionMinLength):
-    sigIndices = np.where(x < threshold)[0]
+def findSectionSmallerThan(x, threshold, sigSectionMinLength, smallerOrEquall=False, removeSmallGaps=False):
+    if (smallerOrEquall):
+        sigIndices = np.where(x <= threshold)[0]
+    else:
+        sigIndices = np.where(x < threshold)[0]
     sigDiff = np.diff(sigIndices)
+    if (removeSmallGaps):
+        smallGaps = np.where(sigDiff == 2)[0]
+        for gap in smallGaps:
+            sigIndices = np.hstack((sigIndices[:gap + 1], [sigIndices[gap] + 1],
+                sigIndices[gap + 1:]))
+        sigDiff = np.diff(sigIndices)
     sigSections = []
     ind = 0
     while(ind < len(sigDiff)):
-        if (sigDiff[ind] == 1 and
-                ind + sigSectionMinLength < len(sigDiff) and
+        if (sigDiff[ind] == 1 and  # ind + sigSectionMinLength < len(sigDiff) and
                 sum(sigDiff[ind:ind + sigSectionMinLength]) ==
                 sigSectionMinLength):
             endIndices = np.where(sigDiff[ind:] > 1)[0]
             endIndex = endIndices[0] + ind if (len(endIndices) > 0) \
-                else len(sigDiff) - 1
+                else len(sigDiff) #- 1
             minIndex = np.argmin(x[sigIndices[ind]:sigIndices[endIndex] + 1]) \
                 + sigIndices[ind]
             sigSections.append((sigIndices[ind], sigIndices[endIndex],
                                 minIndex))
-            if (sigIndices[endIndex] - sigIndices[ind] < sigSectionMinLength):
-                utils.throwException('Error in findSectionSmallerThan')
+#             if (sigIndices[endIndex] - sigIndices[ind] < sigSectionMinLength):
+#                 utils.throwException('Error in findSectionSmallerThan')
             ind = endIndex + 1
         else:
             ind += 1

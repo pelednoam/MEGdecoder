@@ -12,6 +12,7 @@ from src.commons.utils import utils
 from src.commons.utils import mpHelper
 from src.commons.selectors.frequenciesSelector import FrequenciesSelector
 from src.commons.utils import tablesUtils as tabu
+from src.commons.utils import sectionsUtils as su
 
 from sklearn.datasets.base import Bunch
 import itertools
@@ -22,10 +23,6 @@ import numpy as np
 
 class AnalyzerTimeSWFreqsSelector(AnalyzerTimeSWSelector):
 
-    def __init__(self, *args, **kwargs):
-        self.predictorParamtersKeyClass = self._predictorParamtersKeyClass()
-        super(AnalyzerTimeSWFreqsSelector, self).__init__(*args, **kwargs)
-
     def _prepareCVParams(self, p):
         p = p.merge(p.kwargs)
         params = []
@@ -35,33 +32,28 @@ class AnalyzerTimeSWFreqsSelector(AnalyzerTimeSWSelector):
         index = 0
         T = p.x.shape[1]
         print('T is {}'.format(T))
+        timeStep = self.calcTimeStep(T)
+        pss, freqs = su.preCalcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
+            timeStep)
         cv = list(p.cv)
         paramsNum = len(cv) * totalWindowsNum
-        useSmote = p.get('useSmote', False)
+        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
+        trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
         for fold, (trainIndex, testIndex) in enumerate(cv):
-            x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-            trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
+            pssTrain = pss[:, trainIndex, :]
+            pssTest = pss[:, testIndex, :]
             shuffleIndices = None
             if (self.shuffleLabels):
-                print('Shuffling the labels')
-                if (useSmote):
-                    # Create a shuffle indices. The length is twice the length
-                    # of the majority class trials number
-                    # Should do it here, because the shuffling can be done only
-                    # after the boosting, and we want to use the same shuffling
-                    # for every fold
-                    cnt = utils.count(p.y[trainIndex])
-                    majority = max([cnt[0], cnt[1]])
-                    shuffleIndices = np.random.permutation(range(majority * 2))
-                else:
-                    # Just shuffle the labels
-                    random.shuffle(p.y)
+                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                    self.useSmote)
             for windowSize, windowsNum in windowsGenerator:
                 timeSlider = TimeWindowSlider(0, windowSize, windowsNum, T)
                 for startIndex in timeSlider.windowsGenerator():
                     params.append(Bunch(
                         x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
                         trialsInfo=trialsInfo, fold=fold, paramsNum=paramsNum,
+                        pssTrain=mpHelper.ForkedData(pssTrain),
+                        pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
                         windowSize=windowSize, windowsNum=windowsNum,
                         startIndex=startIndex, index=index,
                         sigSectionMinLengths=p.sigSectionMinLengths,
