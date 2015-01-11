@@ -9,7 +9,7 @@ from src.commons.analyzer.analyzerSelector import AnalyzerSelector
 from src.commons.selectors.frequenciesSelector import FrequenciesSelector
 from src.commons.utils import mpHelper
 from src.commons.utils import utils
-from src.commons.utils import freqsUtils
+from src.commons.utils import freqsUtils as fu
 from src.commons.utils import tablesUtils as tabu
 from src.commons.utils import sectionsUtils as su
 
@@ -22,36 +22,47 @@ from sklearn.datasets.base import Bunch
 
 class AnalyzerFreqsSelector(AnalyzerSelector):
 
+    def getXY(self, stepID, p):
+        if (stepID != self.STEP_PRE_PROCCESS):
+            return super(AnalyzerFreqsSelector, self).getXY(stepID)
+        else:
+            if (utils.fileExists(self.pssFileName)):
+                pss, y, trialsInfo = utils.load(self.pssFileName)
+                self.xAxis = utils.load(self.freqsFileName)
+            else:
+                x, y, trialsInfo = super(AnalyzerFreqsSelector,
+                    self).getXY(stepID)
+                timeStep = self.calcTimeStep(trialsInfo)
+                pss, freqs = fu.calcPSX(x, min(p['minFreqs']),
+                    max(p['maxFreqs']), timeStep)
+                print('save pss and freqs')
+                utils.save((pss, y, trialsInfo), self.pssFileName)
+                utils.save(freqs, self.freqsFileName)
+                self.xAxis = freqs
+            return pss, y, trialsInfo
+
     def _prepareCVParams(self, p):
         p = p.merge(p.kwargs)
         params = []
         paramsNum = len(list(p.cv))
-        T = p.x.shape[1]
-        print('T is {}'.format(T))
-        timeStep = self.calcTimeStep(T)
-        pss, freqs = su.preCalcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
-            timeStep)
         index = 0
-        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-        trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
         for fold, (trainIndex, testIndex) in enumerate(p.cv):
-            pssTrain = pss[:, trainIndex, :]
-            pssTest = pss[:, testIndex, :]
             shuffleIndices = None
             if (self.shuffleLabels):
                 p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
                     self.useSmote)
             params.append(Bunch(
-                x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
-                trialsInfo=trialsInfo, fold=fold, paramsNum=paramsNum,
-                pssTrain=mpHelper.ForkedData(pssTrain),
-                pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
+                x=mpHelper.ForkedData(p.x), y=p.y,  # freqs=p.freqs,
+                trainIndex=trainIndex, testIndex=testIndex,
+                fold=fold, paramsNum=paramsNum,
                 sigSectionMinLengths=p.sigSectionMinLengths,
                 sigSectionAlphas=p.sigSectionAlphas, minFreqs=p.minFreqs,
                 maxFreqs=p.maxFreqs, index=index,
                 onlyMidValueOptions=p.onlyMidValueOptions,
                 kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
                 shuffleIndices=shuffleIndices))
+#                 pssTrain=mpHelper.ForkedData(pssTrain),
+#                 pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
             index += 1
         return params
 
@@ -68,14 +79,14 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
             onlyMidValue=onlyMidValue, sigSectionMinLength=sigSectionMinLength,
             sigSectionAlpha=sigSectionAlpha)
 
-    def selectorFactory(self, timeStep, p, params=None, maxSurpriseVal=20,
-                        doPlotSections=False):
-        if (params is None):
-            params = p
-        return FrequenciesSelector(timeStep, p.sigSectionAlpha,
-            p.sigSectionMinLength, params.minFreq, params.maxFreq,
-            params.onlyMidValue, maxSurpriseVal,
-            self.LABELS[self.procID], doPlotSections)
+#     def selectorFactory(self, timeStep, p, params=None, maxSurpriseVal=20,
+#                         doPlotSections=False):
+#         if (params is None):
+#             params = p
+#         return FrequenciesSelector(timeStep, p.sigSectionAlpha,
+#             p.sigSectionMinLength, params.minFreq, params.maxFreq,
+#             params.onlyMidValue, maxSurpriseVal,
+#             self.LABELS[self.procID], doPlotSections)
 
     def resultItem(self, selector, p, res, params, ytest):
         return Bunch(predResults=res, fold=p.fold, ytest=ytest,
@@ -123,7 +134,7 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
     def calcFeaturesSpace(self, X, channels, bep):
         T = X.shape[1]
         timeStep = self.calcTimeStep(T)
-        _, pss = freqsUtils.calcAllPS(X,
+        _, pss = fu.calcAllPS(X,
             timeStep, bep.minFreq, bep.maxFreq, channels)
         return pss
 
@@ -140,7 +151,7 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
         X,y,_ = self.getXY(self.STEP_SPLIT_DATA)
         T = X.shape[1]
         timeStep = self.calcTimeStep(T)        
-        freqsUtils.plotPSDiff(X, y, timeStep, folder, sensors, self.LABELS[self.procID])
+        fu.plotPSDiff(X, y, timeStep, folder, sensors, self.LABELS[self.procID])
                     
 #     def heldOutFeaturesExtraction(self,x,y,trialsInfo,bep,normalizationField='subject'):
 #         T = x.shape[1]
@@ -213,7 +224,16 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
 #             MLUtils.calcConfusionMatrix(ytest, ytestPred, self.LABELS[self.procID],True) 
 #             print(sf.calcRates(ytest, ytestPred))
 #         return sf.AUCScore(ytest, xtestProbs)
-    
+
     @property
     def selectorName(self):
-        return 'FrequenciesSelector.pkl'
+        return 'FrequenciesSelector'
+
+    @property
+    def pssFileName(self):
+        return '{}_pss.pkl'.format(self.defaultFilePrefix)
+
+    @property
+    def freqsFileName(self):
+        return '{}_freqs.pkl'.format(self.defaultFilePrefix)
+    

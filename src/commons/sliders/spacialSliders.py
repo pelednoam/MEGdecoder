@@ -58,21 +58,7 @@ class SpatialWindowSlider(BaseEstimator):
         return self.transform(X)
 
     def cubesGenerator(self):
-        xhalf = int((self.xCubeSize) / 2)
-        yhalf = int((self.yCubeSize) / 2)
-        zhalf = int((self.zCubeSize) / 2)
-        dx = xhalf if self.windowsOverlapped else self.xCubeSize
-        dy = yhalf if self.windowsOverlapped else self.yCubeSize
-        dz = zhalf if self.windowsOverlapped else self.zCubeSize
-        xinds = np.arange(xhalf, len(self.xspace) - xhalf, dx)
-        yinds = np.arange(yhalf, len(self.yspace) - yhalf, dy)
-        zinds = np.arange(zhalf, len(self.zspace) - zhalf, dz)
-        if (not (len(self.xspace) - xhalf) in xinds):
-            xinds = np.hstack((xinds, len(self.xspace) - xhalf))
-        if (not (len(self.yspace) - yhalf) in yinds):
-            yinds = np.hstack((yinds, len(self.yspace) - yhalf))
-        if (not (len(self.zspace) - zhalf) in zinds):
-            zinds = np.hstack((zinds, len(self.zspace) - zhalf))
+        xinds, yinds, zinds, xhalf, yhalf, zhalf = self.prepareGeneratorParams()
 #         dex = 0 if self.xCubeSize % 2 == 0 else 1
 #         dey = 0 if self.xCubeSize % 2 == 0 else 1
 #         dez = 0 if self.xCubeSize % 2 == 0 else 1
@@ -88,6 +74,33 @@ class SpatialWindowSlider(BaseEstimator):
                     for ix, iy, iz in cubeIndices:
                         weightsIndices.append(self.cubesIndices[ix, iy, iz])
                     yield (np.array(weightsIndices, dtype=np.int))
+
+    def prepareGeneratorParams(self):
+        xhalf = int((self.xCubeSize) / 2)
+        yhalf = int((self.yCubeSize) / 2)
+        zhalf = int((self.zCubeSize) / 2)
+        dx = xhalf if self.windowsOverlapped else self.xCubeSize
+        dy = yhalf if self.windowsOverlapped else self.yCubeSize
+        dz = zhalf if self.windowsOverlapped else self.zCubeSize
+        xinds = np.arange(xhalf, len(self.xspace) - xhalf, dx)
+        yinds = np.arange(yhalf, len(self.yspace) - yhalf, dy)
+        zinds = np.arange(zhalf, len(self.zspace) - zhalf, dz)
+        if (not (len(self.xspace) - xhalf) in xinds):
+            xinds = np.hstack((xinds, len(self.xspace) - xhalf))
+        if (not (len(self.yspace) - yhalf) in yinds):
+            yinds = np.hstack((yinds, len(self.yspace) - yhalf))
+        if (not (len(self.zspace) - zhalf) in zinds):
+            zinds = np.hstack((zinds, len(self.zspace) - zhalf))
+        return xinds, yinds, zinds, xhalf, yhalf, zhalf
+
+    def cubesEnumerator(self):
+        xinds, yinds, zinds, _, _, _ = self.prepareGeneratorParams()
+        index = 0
+        for _ in xinds:
+            for _ in yinds:
+                for _ in zinds:
+                    yield index
+                    index += 1
 
     def calcCubesNum(self, weights):
         n = 0

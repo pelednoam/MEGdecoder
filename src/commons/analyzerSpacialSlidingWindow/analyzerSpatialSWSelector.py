@@ -28,13 +28,16 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
                 resultsFileNames.append(resultsFileName)
                 if (not doCalc):
                     continue
-                x, ytrain, ytest, p.trialsInfo, _ = self._preparePPInit(p)
+                y = tabu.findTable(self.hdfFile, 'y', self.defaultGroup) \
+                    if tabu.DEF_TABLES else p.y
+                ytrain = y[p.trainIndex]
+                ytest = y[p.testIndex]
                 print('{} out of {}'.format(p.index, p.paramsNum))
 
                 pssTrain = p.pssTrain.value
                 pssTest = p.pssTest.value
-                T = x.shape[1]
-                timeStep = self.calcTimeStep(T)
+#                 T = x.shape[1]
+#                 timeStep = self.calcTimeStep(T)
                 bestScore = Bunch(auc=0.5, gmean=0.5)
                 bestParams = Bunch(auc=None, gmean=None)
                 externalParams = Bunch(fold=p.fold, xCubeSize=p.xCubeSize,
@@ -43,14 +46,15 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
                     xlim=p.xlim, ylim=p.ylim, zlim=p.zlim,
                     cubeIndex=p.cubeIndex, voxelIndices=p.voxelIndices)
                 for hp in self.parametersGenerator(p):
-                    hp.voxelIndices = p.voxelIndices
-                    selector = self.selectorFactory(timeStep, hp)
+                    selector = self.selectorFactory(None, hp)
                     xtrainFeatures = selector.fit_transform(
-                        x, ytrain, p.trainIndex, None, p.cubeWeights,
+                        None, ytrain, p.trainIndex, None, p.cubeWeights,
                         preCalcPSS=pssTrain, preCalcFreqs=p.freqs)
-                    xtestFeatures = selector.transform(x, p.testIndex,
+                    xtestFeatures = selector.transform(None, p.testIndex,
                         None, p.cubeWeights, preCalcPSS=pssTest,
                         preCalcFreqs=p.freqs)
+                    hp.sections = selector.sections.keys()
+                    hp.sectionsDic = selector.sectionsDic
                     if (xtrainFeatures.shape[0] > 0 and
                             xtestFeatures.shape[0] > 0):
                         xtrainFeaturesBoost, ytrainBoost = MLUtils.boost(
@@ -62,14 +66,19 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
                             kernels=p.kernels, Cs=p.Cs, gammas=p.gammas),
                             bestScore, bestParams, hp)
             except:
-                utils.dump(p,
-                    'AnalyzerSpacialSWSelector._preparePredictionsParameters',
-                    utils.DUMPER_FOLDER)
+                utils.dump(p)
 
+            utils.howMuchTimeFromTic(t)
+            if (bestParams.auc is None):
+                print('never calculated the accuracy for {}'.format(externalParams))
+            else:
+                print('finish!, {}'.format(bestScore))
             utils.save((externalParams, bestScore, bestParams), resultsFileName)
-            howMuchTime = utils.howMuchTimeFromTic(t)
-            print('finish {}, {}'.format(externalParams, bestScore, howMuchTime))
+
         return resultsFileNames
+
+    def resultsKeys(self, p):
+        return (p.xCubeSize, p.yCubeSize, p.zCubeSize), p.cubeIndex
 
     def scorerFoldsResultsKey(self, res):
         return (res.xCubeSize, res.yCubeSize, res.zCubeSize)
@@ -91,51 +100,118 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
     def analyzeResults(self, calcProbs=False, threshold=0.5, doPlot=True,
                        printResults=False, cubesSizes=None, scoresAsDict=True,
                        doSmooth=True, smoothWindowSize=21, smoothOrder=3):
-        self.timeAxis = self.loadTimeAxis()
-        bestEstimatorsPerCube = utils.load(
+        bestEstimatorsPerCubeAccs = utils.load(
             self.bestEstimatorsPerWindowFileName)
-        print('estimators keys: {}'.format(bestEstimatorsPerCube.keys()))
-        bestEstimatorsPerCube = utils.sortDictionaryByKey(
-            bestEstimatorsPerCube)
-        scoresGenerator = self.scoresGeneratorPerWindow(
-            bestEstimatorsPerCube, scoresAsDict, printResults)
-
         weigths = self.loadWeights()
         metaParams = utils.load(self.metaParametersFileName, True)
-        for (scores, _, _, _, sectionsIndices, cubesSize, bep) in scoresGenerator:
-            if (cubesSizes is not None and cubesSize not in cubesSizes):
-                continue
-            spacialSlider = SpatialWindowSlider(0, metaParams.xlim,
-                metaParams.ylim, metaParams.zlim, metaParams.xstep,
-                cubesSize[0], metaParams.ystep, cubesSize[1], metaParams.zstep,
-                cubesSize[2], windowsOverlapped=bep.windowsOverlapped,
-                calcLocs=True)
-            cubesScoresDic = defaultdict(list)
-            for cubeIndex, voxelIndices  in enumerate(
-                    spacialSlider.cubesGenerator()):
-                # Check if the a score was calculated for the current cube
-                # (If all the cube is outside the head, no score is being
-                # calculated)
-                if (cubeIndex in scores):
-                    for voxelHullIndex in sectionsIndices[cubeIndex].values():
-                        cubesScoresDic[voxelHullIndex].append(
-                            scores[cubeIndex])
-            cubes = []
-            voxelIndices = np.array(cubesScoresDic.keys(), dtype=np.int)
-            if (sum(utils.findZerosLines(weigths[voxelIndices])) > 0):
-                utils.throwException('Voxels outside the head!')
-            for voxelHullIndex, cubeScores in cubesScoresDic.iteritems():
-                meanScore = np.mean(cubeScores)
-                if (np.mean(cubeScores) > threshold):
-                    locs = spacialSlider.cubesLocs[voxelHullIndex]
-                    cubes.append(np.hstack((locs, meanScore)))
+        for accFunc, bestEstimatorsPerCube in bestEstimatorsPerCubeAccs.iteritems():
+            print('results for {}'.format(accFunc))
+            scoresGenerator = self.scoresGeneratorPerWindow(
+                bestEstimatorsPerCube, None, scoresAsDict, printResults, True)
+            for (scores, scoresStd, _, sectionsIndices, cubesSize, bep) in scoresGenerator:
+                if (cubesSizes is not None and cubesSize not in cubesSizes):
+                    continue
+                firstBep = bep[bep.keys()[0]][0]
+                windowsOverlapped = firstBep.windowsOverlapped
+                spacialSlider = SpatialWindowSlider(0, metaParams.xlim,
+                    metaParams.ylim, metaParams.zlim, metaParams.xstep,
+                    cubesSize[0], metaParams.ystep, cubesSize[1],
+                    metaParams.zstep, cubesSize[2],
+                    windowsOverlapped=windowsOverlapped, calcLocs=True)
+                cubesScoresDic = defaultdict(list)
+                for cubeIndex in spacialSlider.cubesEnumerator():
+                    # Check if the a score was calculated for the current cube
+                    # (If all the cube is outside the head, no score is being
+                    # calculated)
+                    if (cubeIndex in scores):
+                        for voxelHullIndex in sectionsIndices[cubeIndex].values():
+                            cubesScoresDic[voxelHullIndex].append(
+                                scores[cubeIndex])
+                cubes = []
+                voxelIndices = np.array(cubesScoresDic.keys(), dtype=np.int)
+                if (sum(utils.findZerosLines(weigths[voxelIndices])) > 0):
+                    utils.throwException('Voxels outside the head!')
+                for voxelHullIndex, cubeScores in cubesScoresDic.iteritems():
+                    meanScore = np.mean(cubeScores)
+                    if (np.mean(cubeScores) > threshold):
+                        locs = spacialSlider.cubesLocs[voxelHullIndex]
+                        cubes.append(np.hstack((locs, meanScore)))
 
-            cubes = np.array(cubes)
-#             utils.saveToMatlab(cubes, self.cubesMatlabFileName, 'cubes')
-            self.saveToBlender(cubes, metaParams.xstep)
-            utils.saveToMatlab(cubes, self.cubesMatlabFileName, 'cubes')
-            plots.scatter3d(cubes[:, 0:3], cubes[:, 3])
-            plots.histCalcAndPlot(cubes[:, 3], binsNum=40)
+                cubes = np.array(cubes)
+                self.saveToBlender(cubes, metaParams.xstep)
+                utils.saveToMatlab(cubes, self.cubesMatlabFileName, 'cubes')
+                plots.scatter3d(cubes[:, 0:3], cubes[:, 3])
+                plots.histCalcAndPlot(cubes[:, 3], binsNum=40)
+
+    def findSignificantResults(self, foldsNum=0, doShow=True, windowSizes=None,
+            doPlot=True, printResults=False, overwrite=False):
+        metaParams = utils.load(self.metaParametersFileName, True)
+        self.shuffleLabels = True
+        bestEstimatorsShuffle = utils.load(
+            self.bestEstimatorsPerWindowFileName, overwrite=overwrite)
+        self.shuffleLabels = False
+        bestEstimators = utils.load(
+            self.bestEstimatorsPerWindowFileName, overwrite=overwrite)
+        allCubes = defaultdict(list)
+        for (accFunc, bestEstimatorPerWindow), \
+                (_, bestEstimatorShufflePerWindow) in \
+                zip(bestEstimators.iteritems(),
+                    bestEstimatorsShuffle.iteritems()):
+            print('calculating for {}'.format(accFunc))
+            scoresGenerator = self.scoresGeneratorPerWindow(
+                bestEstimatorPerWindow, printResults=printResults,
+                meanScores=False, estimatorKeys=windowSizes, scoresAsDict=True)
+            scoresGeneratorShuffle = self.scoresGeneratorPerWindow(
+                bestEstimatorShufflePerWindow, printResults=printResults,
+                meanScores=False, estimatorKeys=windowSizes, scoresAsDict=True)
+
+            for (scores, _, _, sectionsIndices, cubesSize, bep), \
+                (scoresShuffle, _, _, sectionsShuffleIndices, _, _) in \
+                    zip(scoresGenerator, scoresGeneratorShuffle):
+
+                firstBep = bep[bep.keys()[0]][0]
+                windowsOverlapped = firstBep.windowsOverlapped
+                spacialSlider = SpatialWindowSlider(0, metaParams.xlim,
+                    metaParams.ylim, metaParams.zlim, metaParams.xstep,
+                    cubesSize[0], metaParams.ystep, cubesSize[1],
+                    metaParams.zstep, cubesSize[2],
+                    windowsOverlapped=windowsOverlapped, calcLocs=True)
+                cubesScoresDic = defaultdict(list)
+                cubesScoresShulleDic = defaultdict(list)
+                voxels, voxelsShuff = [], []
+                for cubeIndex in spacialSlider.cubesEnumerator():
+                    if (cubeIndex in scores):
+                        for voxelHullIndex in \
+                                sectionsIndices[cubeIndex].values():
+                            voxels.append(voxelHullIndex)
+                            cubesScoresDic[voxelHullIndex].extend(
+                                scores[cubeIndex])
+                    if (cubeIndex in scoresShuffle):
+                        for voxelHullShuffleIndex in \
+                                sectionsShuffleIndices[cubeIndex].values():
+                            voxelsShuff.append(voxelHullShuffleIndex)
+                            cubesScoresShulleDic[voxelHullShuffleIndex].extend(
+                                scoresShuffle[cubeIndex])
+
+                cubes = []
+                for ((voxelHullIndex, cubeScores),
+                    (_, cubeScoresShuffle)) in zip(
+                        cubesScoresDic.iteritems(),
+                        cubesScoresShulleDic.iteritems()):
+                    ps = utils.ttestGreaterThan(cubeScores, cubeScoresShuffle)
+                    if (ps < (0.05 / len(voxels))):
+                        locs = spacialSlider.cubesLocs[voxelHullIndex]
+                        cubes.append(np.hstack((locs, -np.log(ps),
+                            np.mean(cubeScores))))
+
+                cubes = np.array(cubes)
+                allCubes[accFunc] = cubes
+                plots.scatter3d(cubes[:, 0:3], cubes[:, 3])
+#                 plots.histCalcAndPlot(cubes[:, 3], binsNum=40)
+
+        utils.saveToMatlab(allCubes, self.cubesMatlabFileName, 'cubes')
+#         self.saveToBlender(allCubes, metaParams.xstep)
+        return cubes
 
     def loadWeights(self):
         if (tabu.DEF_TABLES):
@@ -143,7 +219,7 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
             weights = tabu.findTable(self.hdfFile, 'weights', groupName)
         else:
             weightsDict = utils.loadMatlab(
-            self.weightsFullFileName(self.weightsFileName))
+                self.weightsFullFileName(self.weightsFileName))
             weights = weightsDict[self.weightsDicKey]
         return weights
 
@@ -220,7 +296,7 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
                 doSmooth, smoothWindowSize, smoothOrder)
             timeSelector = GSS.TimeWindowSlider(0, windowSize, windowsNum, T)
             startIndices = np.array(timeSelector.windowsGenerator())
-            timeAxis = self.timeAxis[startIndices + windowSize / 2]
+            timeAxis = self.xAxis[startIndices + windowSize / 2]
 
             winImpsAUC = [np.mean(windAcc) for windAcc in windowsACUs]
             winImpsGmean = [np.mean(windAcc) for windAcc in windowsGmeans]
@@ -236,7 +312,7 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
             plots.graphN(timeAxis, importanceAUC.T)
 
             utils.saveToMatlab(timeAxis, self.timeAxisFileName[:-4],
-                'timeAxis')
+                'xAxis')
             utils.saveDictToMatlab(self.sensorsImportanceFileName[:-4],
                 {'importanceAUC': importanceAUC,
                  'importanceGmean': importanceGmean})

@@ -9,25 +9,143 @@ import scipy.fftpack
 
 from src.commons.utils import plots
 from src.commons.utils import MLUtils
+from src.commons.utils import utils
 import sectionsUtils as su
+from __builtin__ import Exception
 
-import seaborn as sns
+# import seaborn as sns
 
 
-def calcPS(X, timeStep, minFreq, maxFreq):
+def calcFreqs(X, timeStep, minFreq=0, maxFreq=np.inf):
+    if (X.ndim > 1):
+        freqs = scipy.fftpack.fftfreq(X.shape[1], timeStep)
+        idx1 = np.argsort(freqs)
+        freqs = freqs[idx1]
+        idx2 = np.where((freqs > minFreq) & (freqs < maxFreq))[0]
+        freqs = freqs[idx2]
+        return freqs, idx1, idx2, 0
+    else:
+        # sometimes no all the time steps are the same
+        allFreqs, lengths = [], []
+        idx1s, idx2s = [], []
+        if (isinstance(timeStep, float)):
+            timeStep = np.ones((len(X)))
+        for x, dt in zip(X, timeStep):
+            freqs = scipy.fftpack.fftfreq(x.shape[0], dt)
+            idx1 = np.argsort(freqs)
+            freqs = freqs[idx1]
+            idx2 = np.where((freqs > minFreq) & (freqs < maxFreq))[0]
+            freqs = freqs[idx2]
+            allFreqs.append(freqs)
+            lengths.append(len(freqs))
+            idx1s.append(idx1)
+            idx2s.append(idx2)
+        maxLenInd = np.argmax(lengths)
+        return allFreqs, idx1s, idx2s, maxLenInd
+        # Take the frequencies of the shortest time series
+#
+#         minLen = np.min(lengths)
+# #         freqs = allFreqs[minLenInd]
+# #         idx1 = idx1s[minLenInd]
+# #         idx2 = idx2s[minLenInd]
+# #         return freqs, idx1, idx2, minLenInd
+#         freqsX = np.zeros((len(X), minLen))
+#         for k, freq in enumerate(allFreqs):
+#             freqsX[k, :] = freq[:minLen]
+#         return freqsX, idx1s, idx2s, maxLenInd
+
+
+# todo: remove timeStep from the parameters
+def calcAndCutPS(X, freqs, timeStep, minFreq, maxFreq):
     ''' X if for a specific channel (X[:,:,c] '''
-    ps = np.abs(np.fft.fft(X)) ** 2
-    freqs = scipy.fftpack.fftfreq(X[0, :].size, timeStep)
-    return cutPS(ps, freqs, minFreq, maxFreq)
+    if (X.ndim > 1):
+        ps = np.abs(np.fft.fft(X)) ** 2
+        return cutPS(ps, freqs, minFreq, maxFreq)
+    else:
+        pss = [None] * len(X)
+        freqss = [None] * len(X)
+        for k, x  in enumerate(X):
+            ps = np.abs(np.fft.fft(x)) ** 2
+            freqss[k], pss[k] = cutPS(ps, freqs[k], minFreq, maxFreq)
+        return freqss, pss
+
+
+def calcPSX(X, minFreq, maxFreq, timeStep, cvIndices=None,
+              timeIndices=None, weights=None):
+    C = su.calcSectionsNum(X, None, weights)
+    print('C: {}'.format(C))
+    xc0 = su.calcSlice(X, 0, cvIndices, timeIndices, weights)
+    freqs, idx1, idx2, maxLenInd = calcFreqs(xc0, timeStep, minFreq, maxFreq)
+    maxFreqs = freqs[maxLenInd]
+    pss = np.empty((len(X), len(maxFreqs), C))
+    pss.fill(np.nan)
+    for c in range(C):
+        print(c, C)
+        xc = su.calcSlice(X, c, cvIndices, timeIndices, weights)
+        ps = calcPS(xc, idx1, idx2)
+        if isinstance(ps, np.ndarray):
+            pss[:, :, c] = ps
+        else:
+            for k in range(len(X)):
+                pss[k, :, c] = np.interp(maxFreqs, freqs[k], ps[k])
+    print(utils.noNone(pss))
+    print(pss.shape)
+    return pss, maxFreqs
+
+
+def calcPS(X, idx1, idx2):
+    if (X.ndim > 1):
+        ps = np.abs(np.fft.fft(X)) ** 2
+        ps = ps[:, idx1]
+        ps = ps[:, idx2]
+        # ps = ps[:freqsNum]
+        return ps
+    else:
+        # T varies every trial
+        pss = [None] * len(X)
+        for k, (x, id1, id2) in enumerate(zip(X, idx1, idx2)):
+            ps = np.abs(np.fft.fft(x)) ** 2
+            ps = ps[id1]
+            ps = ps[id2]
+            # ps = ps[:freqsNum]
+            pss[k] = ps
+        # return np.array(pss)
+        return pss
+
+def sortFreqs(freqs, minFreq, maxFreq):
+    if (isinstance(freqs[0], float)):
+        # Same frequencies for all the trials
+        idx1 = np.argsort(freqs)
+        freqs = freqs[idx1]
+        idx2 = np.where((freqs > minFreq) & (freqs < maxFreq))[0]
+        freqs = freqs[idx2]
+        return freqs, idx1, idx2
+    elif (isinstance(freqs[0], np.ndarray)):
+        # Every trial has different frequencies
+        retFreqs = [None] * len(freqs)
+        idx1s = [None] * len(freqs)
+        idx2s = [None] * len(freqs)
+        for k, kfreqs in enumerate(freqs):
+            retFreqs[k], idx1s[k], idx2s[k] = sortFreqs(
+                kfreqs, minFreq, maxFreq)
+        return retFreqs, idx1s, idx2s
+    else:
+        raise Exception('Unknown frequencies type! (sortFreqs)')
+
+
+def sortPS(pss, idx1, idx2):
+    if (isinstance(pss, np.ndarray)):
+        # same frequencies for every trial
+        pss = pss[:, idx1][:, idx2]
+    else:
+        for k, ps in enumerate(pss):
+            pss[k] = ps[idx1[k]][idx2[k]]
+    return pss
 
 
 def cutPS(ps, freqs, minFreq, maxFreq):
-    idx = np.argsort(freqs)
-    ps = ps[:, idx]
-    freqs = freqs[idx]
-    idx2 = np.where((freqs > minFreq) & (freqs < maxFreq))[0]
-    ps = ps[:, idx2]
-    freqs = freqs[idx2]
+    freqs, idx1, idx2 = sortFreqs(freqs, minFreq, maxFreq)
+    ps = sortPS(ps, idx1, idx2)
     return freqs, ps
 
 
@@ -47,7 +165,7 @@ def calcAllAvgPS(X, y, timeStep, sensors=None, minFreq=0, maxFreq=50):
 
 def calcAllPS(X, timeStep, minFreq=0, maxFreq=50, sensors=None,
               cvIndices=None, timeIndices=None, weights=None):
-    C = X.shape[2] if weights is None else weights.shape[0]
+    C = su.calcSectionsNum(X, None, weights)
     if (sensors is None):
         sensors = range(C)
     for k, c in enumerate(sensors):

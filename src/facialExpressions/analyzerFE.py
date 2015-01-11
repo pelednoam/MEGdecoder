@@ -12,6 +12,7 @@ from src.commons.analyzer.analyzerPowerSpectrumSelector import AnalyzerPowerSpec
 from src.commons.utils import utils
 from src.commons import scoreFunctions as sf
 from src.commons.utils import MLUtils
+from src.commons.misc.subjectsCV import SubjectsCV
 
 import tablesClasses as tc
 import featuresExtraction as fe
@@ -34,9 +35,9 @@ class AnalyzerFESuper(object):
 
     def loadData(self):
         db = tc.Tables(tc.HDF5_FILE_NAME, read=True)
-        playersRounds = db.getPlayersRounds()
-        playerRounds = playersRounds[self.subject]
-        self.labels = db.getActions()[playerRounds]
+#         playersRounds = db.getPlayersRounds()
+#         playerRounds = playersRounds[self.subject]
+        self.labels = db.getActions()  #[playerRounds]
 
     def dataGenerator(self, matlabDic):
         db = tc.Tables(tc.HDF5_FILE_NAME, read=True)
@@ -45,13 +46,11 @@ class AnalyzerFESuper(object):
         calcMainCentroids = True
         groups = self.getFacialGroups()
         for (dataTable, _, subjectID, gameID, roundID, frameRate), label in zip(db.getTables(dataGroup), self.labels):
-            if (subjectID != self.subject):
-                continue
             data = dataTable[:]
             mainCentroids = db.loadMainCentroids(centroidGroupType, subjectID, gameID, roundID)
             featuresCalculator = fe.FEPointsDistances(data, groups, calcMainCentroids=calcMainCentroids, mainCentroids=mainCentroids)
             dists = featuresCalculator.calcPointsDistanceFromNose(parameteriation=False, features=False, polar=True, doPlot=False)
-            yield ((dists, label), {'frameRate': frameRate})
+            yield ((dists, label), {'timeStep': 1.0 / frameRate, 'subjectID': subjectID})
 
     def getFacialGroups(self):
         # from http://www.luxand.com/download/Luxand_FaceSDK_Documentation.pdf
@@ -72,6 +71,15 @@ class AnalyzerFESuper(object):
         leftChin = [5, 7, 9, 11]
         groups = [leftEye, rightEye, leftLeftEyeBrow, leftRightEyeBrow, rightRightEyeBrow, rightLeftEyeBrow, nose, mouth, chickLeft, chickRight, rightChin, leftChin]
         return groups
+
+    def featuresCV(self, y, trialsInfo, foldsNum, testSize=None):
+        subjects = [trialInfo['subjectID'] for trialInfo in trialsInfo]
+        return SubjectsCV(subjects)
+
+    def calcTimeStep(self, trialsInfo):
+        ''' return times bin '''
+        return np.array([trialInfo['timeStep'] for trialInfo in trialsInfo])
+
 
     def getChannelsNum(self, matlabDic):
         return self.FEATURES_NUM

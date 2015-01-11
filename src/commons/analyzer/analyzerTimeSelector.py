@@ -53,7 +53,7 @@ class AnalyzerTimeSelector(AnalyzerSelector):
         utils.log('ss alpha: {}, ss len: {}'.format(
             p.sigSectionAlpha, p.sigSectionMinLength), verbose)
         return TimeSelector(p.sigSectionAlpha, p.sigSectionMinLength,
-            params.onlyMidValue, self.timeAxis, maxSurpriseVal,
+            params.onlyMidValue, self.xAxis, maxSurpriseVal,
             self.LABELS[self.procID], doPlotSections)
 
     def createParamsObj(self, paramsTuple):
@@ -92,7 +92,7 @@ class AnalyzerTimeSelector(AnalyzerSelector):
             bep.onlyMidValue, bep.kernel, bep.C, bep.gamma))
 
     def featuresAxis(self, selector=None):
-        return self.timeAxis
+        return self.xAxis
 
     @property
     def featuresAxisLabel(self):

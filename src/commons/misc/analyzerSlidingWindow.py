@@ -193,14 +193,14 @@ class AnalyzerSW(Analyzer):
 #         for train,test in cv:        
 
     def analyzeResults(self, calcProbs=True,probsThreshold=0.5,doPlot=True,calcOnHeldoutData=False,printResults=False):
-        self.timeAxis = self.loadTimeAxis()
+        self.xAxis = self.loadTimeAxis()
         bestEstimators = utils.load(self.bestEstimatorsFileName)
         bestEstimatorsPerWindow = utils.load(self.bestEstimatorsPerWindowFileName)
         predParams = utils.load(self.predictionsParamtersFileName)
         colors = sns.color_palette(None, len(bestEstimators))
         featureExtractors = bestEstimators.keys()
-#         scoresGenerator = self.scoresGenerator(bestEstimators, predParams, self.timeAxis, calcProbs, probsThreshold)
-        scoresGenerator = self.scoresGeneratorPerWindow(bestEstimatorsPerWindow, predParams, self.timeAxis, calcProbs, probsThreshold,printResults)
+#         scoresGenerator = self.scoresGenerator(bestEstimators, predParams, self.xAxis, calcProbs, probsThreshold)
+        scoresGenerator = self.scoresGeneratorPerWindow(bestEstimatorsPerWindow, predParams, self.xAxis, calcProbs, probsThreshold,printResults)
         probScoresAggregator, scoresAggregator = {},{}
         meanScoresAggregator, meanProbScoresAggregator = [], []
 
@@ -365,7 +365,7 @@ class AnalyzerSW(Analyzer):
         if (utils.fileExists(self.channlesFileName) and not overwrite):
             return utils.load(self.channlesFileName)
         x,y,trialsInfo = self.getXY(self.STEP_SPLIT_DATA)
-        self.timeAxis = self.loadTimeAxis()
+        self.xAxis = self.loadTimeAxis()
         bestEstimatorsPerWindow = utils.load(self.bestEstimatorsPerWindowFileName)
         predParams = utils.load(self.predictionsParamtersFileName)
         T = x.shape[1]
@@ -384,8 +384,8 @@ class AnalyzerSW(Analyzer):
                 channlesSelector = self.channelsSelector(bep.channelsNum)
                 channelsModel = channlesSelector.fit(xTimed, y)
                 channlesIndices = np.arange(x.shape[2])[channelsModel.get_support()]
-                channels[featureExtractorName][self.timeAxis[startIndex+bep.windowSize/2]]=channlesIndices
-                scores[featureExtractorName][self.timeAxis[startIndex+bep.windowSize/2]]=channelsModel.scores_
+                channels[featureExtractorName][self.xAxis[startIndex+bep.windowSize/2]]=channlesIndices
+                scores[featureExtractorName][self.xAxis[startIndex+bep.windowSize/2]]=channelsModel.scores_
             startIndices[featureExtractorName] = bestEstimatorPerWindow.keys()
             channels[featureExtractorName] = utils.sortDictionaryByKey(channels[featureExtractorName])
             scores[featureExtractorName] = utils.sortDictionaryByKey(scores[featureExtractorName])
@@ -432,7 +432,7 @@ class AnalyzerSW(Analyzer):
             bestStartIndex = np.argmax(heldoutScores)
             print('{}: best start index: {} for windowSize: {}'.format(featureExtractorName,bestStartIndex,bep.windowSize))
             print(reports[bestStartIndex])
-            xAxis = self.timeAxis[startIndices+bep.windowSize/2]
+            xAxis = self.xAxis[startIndices+bep.windowSize/2]
             plt.plot(xAxis,heldoutScores,label=featureExtractorName)      
               
         plt.title('Prediction on held-out data for window size {}'.format(bep.windowSize))

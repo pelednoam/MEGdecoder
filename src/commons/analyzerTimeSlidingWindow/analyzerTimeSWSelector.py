@@ -28,30 +28,25 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
             resultsFileNames.append(resultsFileName)
             if (not doCalc):
                 continue
-            x, ytrain, ytest, p.trialsInfo, _ = self._preparePPInit(p)
+            _, ytrain, ytest, _, _ = self._preparePPInit(p, getX=False)
             print('{} out of {}'.format(p.index, p.paramsNum))
-            T = x.shape[1]
-            timeStep = self.calcTimeStep(T)
+#             T = x.shape[1]
+#             timeStep = self.calcTimeStep(T)
             pssTrain = p.pssTrain.value
             pssTest = p.pssTest.value
             bestScore = Bunch(auc=0.5, gmean=0.5)
             bestParams = Bunch(auc=None, gmean=None)
-            timeSlider = TimeWindowSlider(0, p.windowSize, p.windowsNum, T)
-            timeSlider.startIndex = p.startIndex
+#             timeSlider = TimeWindowSlider(0, p.windowSize, p.windowsNum, T)
+#             timeSlider.startIndex = p.startIndex
             externalParams = Bunch(fold=p.fold, windowSize=p.windowSize,
-                windowsNum=p.windowsNum, startIndex=timeSlider.startIndex)
+                windowsNum=p.windowsNum, startIndex=p.startIndex)
             for hp in self.parametersGenerator(p):
-                xtrainTimedIndices = timeSlider.fit_transform(
-                    x, p.trainIndex, returnIndices=True)
-                xtestTimedIndices = timeSlider.transform(
-                    x, p.testIndex, returnIndices=True)
-                selector = self.selectorFactory(timeStep, hp)
+                selector = self.selectorFactory(None, hp)
                 xtrainTimedFeatures = selector.fit_transform(
-                    x, ytrain, p.trainIndex, xtrainTimedIndices,
+                    None, ytrain, p.trainIndex,
                     preCalcPSS=pssTrain, preCalcFreqs=p.freqs)
-                xtestTimedFeatures = selector.transform(x, p.testIndex,
-                    xtestTimedIndices, preCalcPSS=pssTest,
-                    preCalcFreqs=p.freqs)
+                xtestTimedFeatures = selector.transform(None, p.testIndex,
+                    preCalcPSS=pssTest, preCalcFreqs=p.freqs)
                 if (xtrainTimedFeatures.shape[0] > 0 and
                         xtestTimedFeatures.shape[0] > 0):
                     if (self.useSmote):
@@ -117,63 +112,6 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
             rates=rates, sections=res.sections, startIndex=res.startIndex,
             auc=auc, gmean=gmean, y=res.ytest, probs=probs)
 
-#     def _findBestEstimators(self, scorerFoldsResults=None):
-#         if (scorerFoldsResults is None):
-#             scorerFoldsResults = utils.load(self.scorerFoldsResultsFileName)
-#         bestEstimatorsPerWindow = Bunch(auc=defaultdict(dict),
-#             gmean=defaultdict(dict))
-#         # loop over the different window sizes
-#         for resultsKey, scorerFoldsResultsDic in \
-#                 scorerFoldsResults.iteritems():
-#             bestScorePerWindow = Bunch(auc=defaultdict(int),
-#                 gmean=defaultdict(int))
-#             for predictorParamters, predictorResults in \
-#                     scorerFoldsResultsDic.iteritems():
-#                 # sort according to _bestEstimatorsSortKey
-#                 results = sorted(predictorResults,
-#                     key=self._bestEstimatorsSortKey())
-#                 # group by groupByKey
-#                 resultsByFold = itertools.groupby(results,
-#                     key=self._bestEstimatorsGroupByKey())
-#                 for groupByKey, resultsPerStartIndex in resultsByFold:
-#                     scoresPerWindow = Bunch(auc=[], gmean=[])
-#                     probsScoresPerWindow, sectionsPerWindow = [], []
-#                     sectionsDicsPerWindow = []
-#                     for res in resultsPerStartIndex:
-#                         sectionsPerWindow.append(res.sections.keys())
-#                         if ('sectionsDic' in res):
-#                             sectionsDicsPerWindow.append(res.sectionsDic)
-#                         scoresPerWindow.auc.append(res.auc)
-#                         scoresPerWindow.gmean.append(res.gmean)
-# #                     print(groupByKey, len(scoresPerWindow.auc))
-#                     # Find the best estimator per window
-#                     for acc in ['auc', 'gmean']:
-# #                         scoresPerWindow[acc] = utils.removeNone(scoresPerWindow[acc])
-# #                         scoresPerWindow[acc] = utils.replaceNone(scoresPerWindow[acc], 0.5)
-#                         if (len(scoresPerWindow[acc]) > 0 and np.mean(scoresPerWindow[acc]) >
-#                                 bestScorePerWindow[acc][groupByKey]):
-#                             bestEstimatorsPerWindow[acc][resultsKey][groupByKey] = \
-#                                 Bunch(parameters=predictorParamters,
-#                                 probsScoresPerWindow=probsScoresPerWindow,
-#                                 scoresPerWindow=scoresPerWindow[acc],
-#                                 sectionsPerWindow=sectionsPerWindow,
-#                                 sectionsDicsPerWindow=sectionsDicsPerWindow)
-#                             bestScorePerWindow[acc][groupByKey] = \
-#                                 np.mean(scoresPerWindow[acc])
-#
-# #         for resultsKey in scorerFoldsResults.keys():
-# #             # The namedtuple PredictorParamters isn't pickleable,
-# #             # so convert it to Bunch
-# #             for acc in ['auc', 'gmean']:
-# #                 bestEstimatorsPerWindow[acc][resultsKey] = \
-# #                     utils.sortDictionaryByKey(bestEstimatorsPerWindow[acc][resultsKey])
-# #                 for groupByKey in bestEstimatorsPerWindow[acc][resultsKey].keys():
-# #                     bestEstimatorsPerWindow[acc][resultsKey][groupByKey].parameters = \
-# #                         utils.namedtupleToBunch(
-# #                         bestEstimatorsPerWindow[acc][resultsKey][groupByKey].parameters)
-#         utils.save(bestEstimatorsPerWindow,
-#                    self.bestEstimatorsPerWindowFileName)
-
     def _bestEstimatorsSortKey(self):
         return operator.itemgetter('startIndex', 'fold')
 
@@ -183,7 +121,7 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
     def analyzeResults(self, calcProbs=False, probsThreshold=0.5, doShow=True,
             doPlot=True, printResults=False, windowSizes=None, plotPerAccFunc=True,
             doSmooth=False, smoothWindowSize=21, smoothOrder=3):
-        self.timeAxis = self.loadTimeAxis()
+        self.xAxis = self.loadTimeAxis()
         bestEstimatorsPerWindowAccs = utils.load(
             self.bestEstimatorsPerWindowFileName)
         allScores, allStds = {}, {}
@@ -196,9 +134,9 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                     continue
                 windowsNum = scores.shape[0]
                 timeSelector = TimeWindowSlider(0, windowSize, windowsNum,
-                    len(self.timeAxis))
+                    len(self.xAxis))
                 startIndices = np.array(timeSelector.windowsGenerator())
-                xAxis = self.timeAxis[startIndices + windowSize / 2]
+                xAxis = self.xAxis[startIndices + windowSize / 2]
                 allScores[accFunc] = scores
                 allStds[accFunc] = scoresStd
                 if (doPlot):
@@ -231,7 +169,7 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
 
     def findSignificantResults(self, foldsNum=0, doShow=True, windowSizes=None,
             doPlot=True, printResults=False, overwrite=False):
-        self.timeAxis = self.loadTimeAxis()
+        self.xAxis = self.loadTimeAxis()
         self.shuffleLabels = True
         bestEstimatorsShuffle = utils.load(
             self.bestEstimatorsPerWindowFileName, overwrite=overwrite)
@@ -256,9 +194,9 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                 print('window size {}'.format(windowSize))
                 windowsNum = scores.shape[0] 
                 timeSelector = TimeWindowSlider(0, windowSize, windowsNum,
-                    len(self.timeAxis))
+                    len(self.xAxis))
                 startIndices = np.array(timeSelector.windowsGenerator())
-                xAxis = self.timeAxis[startIndices + windowSize / 2]
+                xAxis = self.xAxis[startIndices + windowSize / 2]
                 ps = []
                 print(scores.shape, scoresShuffle.shape)
                 for windowScores, windowScoresShuffle in zip(scores, scoresShuffle):
@@ -267,14 +205,17 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
 #                 scores = MLUtils.savitzkyGolaySmooth(scores, smoothWindowSize,
 #                     smoothOrder)
                 ps = np.array(ps)
-                secs = su.findSectionSmallerThan(ps, 0.054, 1, True, True)
-                print('significant sections:')
+                secs = su.findSectionSmallerThan(ps, 0.054, 0, True, True)
                 for sec in secs:
                     print(xAxis[sec[0]], xAxis[sec[1]])
+#                 print('significant sections:')
+#                 for sec in secs:
+#                     print(xAxis[sec[0]], xAxis[sec[1]])
                 allScores[accFunc] = scores
                 allPs[accFunc] = ps
-                if (not np.all([len(s) for s in scores] == foldsNum) and foldsNum != 0):
-                    print('Not all the result from all the folds were collected!')
+                if (foldsNum > 0 and not \
+                        np.all([len(s) == foldsNum for s in scores])):
+                    print('Not all the result were collected!')
                 # In case we don't have the results from all the folds
                 scoresMean, scoresStd = [np.mean(s) for s in scores], \
                     [np.std(s) for s in scores]
@@ -292,7 +233,6 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                         markers=('b-', 'r--'), doPlot=doShow,
                         fileName=self.figureFileName('timeSWSignificance.jpg'))
 
-
         return allPs, xAxis
 
     def scoresGeneratorPerWindow(self, bestEstimatorsPerWindow, estimatorKeys=None,
@@ -301,7 +241,7 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                 bestEstimatorsPerWindow.iteritems():
             if (estimatorKeys is not None and estimatorKey not in estimatorKeys):
                 continue
-            parameters = []
+            parameters = {}
             scores, scoresStd, sections, sectionsDics = {}, {}, {}, {}
             for groupByKey, bestEstimator in \
                     bestEstimatorPerWindow.iteritems():
@@ -311,16 +251,15 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                 scores[groupByKey] = np.mean(bestEstimator['scores']) \
                     if meanScores else bestEstimator['scores']
                 scoresStd[groupByKey] = np.std(bestEstimator['scores'])
-                parameters.append(bestEstimator['params'])
+                parameters[groupByKey] = bestEstimator['params']
                 # insert the sections union from all folds
-#                 groupBySections, groupBySectionsDics = set(), {}
-#                 for sectionsPerWindow, sectionDicsPerWindow in zip(
-#                         bestEstimator.sectionsPerWindow,
-#                         bestEstimator.sectionsDicsPerWindow):
-#                     groupBySections |= set(sectionsPerWindow)
-#                     utils.mergeDics(groupBySectionsDics, sectionDicsPerWindow)
-#                 sections[groupByKey] = groupBySections
-#                 sectionsDics[groupByKey] = groupBySectionsDics
+                groupBySections, groupBySectionsDics = set(), {}
+                for params in bestEstimator['params']:
+                    if (params is not None and 'sections' in params):
+                        groupBySections |= set(params.sections)
+                        utils.mergeDics(groupBySectionsDics, params.sectionsDic)
+                sections[groupByKey] = groupBySections
+                sectionsDics[groupByKey] = groupBySectionsDics
 #                 if (printResults):
 #                     self.printBestPredictorResults(bestEstimator)
 
@@ -415,7 +354,7 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
                 doSmooth, smoothWindowSize, smoothOrder)
             timeSelector = TimeWindowSlider(0, windowSize, windowsNum, T)
             startIndices = np.array(timeSelector.windowsGenerator())
-            timeAxis = self.timeAxis[startIndices + windowSize / 2]
+            timeAxis = self.xAxis[startIndices + windowSize / 2]
 
             winImpsAUC = [np.mean(windAcc) for windAcc in windowsACUs]
             winImpsGmean = [np.mean(windAcc) for windAcc in windowsGmeans]
@@ -431,7 +370,7 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
             plots.graphN(timeAxis, importanceAUC.T)
 
             utils.saveToMatlab(timeAxis, self.timeAxisFileName[:-4],
-                'timeAxis')
+                'xAxis')
             utils.saveDictToMatlab(self.sensorsImportanceFileName[:-4],
                 {'importanceAUC': importanceAUC,
                  'importanceGmean': importanceGmean})

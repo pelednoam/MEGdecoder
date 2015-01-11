@@ -547,7 +547,7 @@ def ttestGreaterThan(A, B):
     else:
         return 1
     p = p / 2 if t > 0 else 1 - (p / 2)
-    return int(p * 10000) / 10000.0
+    return p #int(p * 10000) / 10000.0
 
 
 def coupledTtest(A, B):

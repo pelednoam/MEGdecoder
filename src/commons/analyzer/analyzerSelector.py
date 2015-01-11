@@ -11,12 +11,12 @@ from src.commons.utils import plots
 from src.commons import scoreFunctions as sf
 from src.commons.utils import mpHelper
 from src.commons.utils import tablesUtils as tabu
+from src.commons.selectors.timeSelector import TimeSelector
 
 import os
 import numpy as np
 from sklearn.datasets.base import Bunch
 from abc import abstractmethod
-import random
 
 
 class AnalyzerSelector(Analyzer):
@@ -24,7 +24,8 @@ class AnalyzerSelector(Analyzer):
     def process(self, **kwargs):
         ''' Step 3) Processing the data '''
         print('Proccessing the data. First load it')
-        x, y, trialsInfo = self.getXY(self.STEP_PRE_PROCCESS)
+        x, y, trialsInfo = self.getXY(self.STEP_PRE_PROCCESS, kwargs)
+        print(x.shape)
         verbose = kwargs.get('verbose', True)
         utils.log(utils.count(np.array(y)), verbose)
         utils.save(Bunch(foldsNum=kwargs['foldsNum']),
@@ -50,20 +51,13 @@ class AnalyzerSelector(Analyzer):
             resultsFileName, doCalc = self.checkExistingResultsFile(p)
             if (not doCalc):
                 return resultsFileName
-            x, ytrain, ytest, p.trialsInfo, _ = self._preparePPInit(p)
+            x, ytrain, ytest, _, _ = self._preparePPInit(p)
             print('{} out of {}'.format(p.index, p.paramsNum))
-
-            if (not self.variesT):
-                T = x.shape[1]
-                timeStep = self.calcTimeStep(T)
-            else:
-                # todo: calc timeStep for each trial!
-                timeStep = None
             bestScore = Bunch(auc=0.5, gmean=0.5)
             bestParams = Bunch(auc=None, gmean=None)
             externalParams = Bunch(fold=p.fold)
             for hp in self.parametersGenerator(p):
-                selector = self.selectorFactory(timeStep, hp)
+                selector = self.selectorFactory(hp)
                 xtrainFeatures = selector.fit_transform(x, ytrain, p.trainIndex)
                 xtestFeatures = selector.transform(x, p.testIndex)
                 if (xtrainFeatures.shape[0] > 0 and xtestFeatures.shape[0] > 0):
@@ -98,25 +92,41 @@ class AnalyzerSelector(Analyzer):
         else:
             return resultsFileName, True
 
-    def _preparePPInit(self, p):
+    def _preparePPInit(self, p, getX=True, getWeights=False, doCV=True):
+        x, weights, trialsInfo = None, None, None
         if (tabu.DEF_TABLES):
             groupName = self.defaultGroup
-            x = tabu.findTable(self.hdfFile, 'x', groupName)
+            if (getX):
+                x = tabu.findTable(self.hdfFile, 'x', groupName)
             # Add code to deal with the shuffling
             y = tabu.findTable(self.hdfFile, 'y', groupName)
-            weights = tabu.findTable(self.hdfFile, 'weights', groupName)
+            if (getWeights):
+                weights = tabu.findTable(self.hdfFile, 'weights', groupName)
             trialsInfo = tabu.findTable(self.hdfFile, 'trialsInfo', groupName)
         else:
-            x = p.x.value
+            if (getX):
+                x = p.x.value
             y = p.y
-            trialsInfo = p.trialsInfo
-            weights = p.get('weights', None)
-        ytrain = y[p.trainIndex]
-        ytest = y[p.testIndex]
-        return x, ytrain, ytest, trialsInfo, weights
+            if ('trialsInfo' in p):
+                trialsInfo = p.trialsInfo
+            if (getWeights):
+                weights = p.get('weights', None)
+        if (doCV):
+            ytrain = y[p.trainIndex]
+            ytest = y[p.testIndex]
+            return x, ytrain, ytest, trialsInfo, weights
+        else:
+            return x, y, trialsInfo, weights
+
+    def selectorFactory(self, p, maxSurpriseVal=20, doPlotSections=False):
+        verbose = p.get('verbose', True)
+        utils.log('ss alpha: {}, ss len: {}'.format(
+            p.sigSectionAlpha, p.sigSectionMinLength), verbose)
+        return TimeSelector(p.sigSectionAlpha, p.sigSectionMinLength,
+            p.onlyMidValue, self.xAxis, maxSurpriseVal,
+            self.LABELS[self.procID], doPlotSections)
 
     def permutateTheLabels(self, y, trainIndex, useSmote):
-        print('Shuffling the labels')
         if (useSmote):
             # Create a shuffle indices. The length is twice the length
             # of the majority class trials number
@@ -125,9 +135,9 @@ class AnalyzerSelector(Analyzer):
             # for every fold
             cnt = utils.count(y[trainIndex])
             majority = max([cnt[0], cnt[1]])
-            shuffleIndices = np.random.permutation(range(majority * 2))
+            shuffleIndices = np.random.permutation(majority * 2)
         else:
-            shuffleIndices = np.random.permutation(range(len(y)))
+            shuffleIndices = np.random.permutation(len(y))
             y = y[shuffleIndices]
         return y, shuffleIndices
 
@@ -189,7 +199,7 @@ class AnalyzerSelector(Analyzer):
                         permutationNum=2000, permutationLen=20,
                         maxSurpriseVal=20, doPlotSections=False,
                         doPrintBestSections=True, plotDataForGivenRange=True):
-        self.timeAxis = self.loadTimeAxis()
+        self.xAxis = self.loadTimeAxis()
         bestEstimators = utils.load(self.bestEstimatorsFileName)
         featureExtractorName, bestEstimator = bestEstimators.iteritems().next()
         x, y, trialsInfo = self.getXY(self.STEP_SPLIT_DATA)
@@ -477,10 +487,10 @@ class AnalyzerSelector(Analyzer):
     def parametersGenerator(self, p):
         ''' hyper parameter generator for _preparePredictionsParameters '''
 
-    @abstractmethod
-    def selectorFactory(self, timeStep, p, params, maxSurpriseVal,
-                        doPlotSections):
-        ''' The selector generator '''
+#     @abstractmethod
+#     def selectorFactory(self, timeStep, p, params, maxSurpriseVal,
+#                         doPlotSections):
+#         ''' The selector generator '''
 
     @abstractmethod
     def createParamsObj(self, paramsTuple):

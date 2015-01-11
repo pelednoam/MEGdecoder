@@ -31,7 +31,7 @@ class AnalyzerYoni(AnalyzerTimeSelector):
     def dataGenerator(self, matlabDic):
         X, Y = matlabDic['x'], matlabDic['y'][0]
         nanidx = np.where(np.isnan(X[0]))[0]
-        self.timeAxis = np.delete(self.timeAxis, nanidx, axis=0)
+        self.xAxis = np.delete(self.xAxis, nanidx, axis=0)
         for x, y in zip(X, Y):
             x = np.delete(x, nanidx, axis=0)
             x = np.reshape(x, (x.shape[0], 1))

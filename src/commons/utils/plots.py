@@ -209,20 +209,21 @@ def graph(x, y, title='', xlabel='', ylabel='', xlim=None, ylim=None,
 
 # @tryCall
 def graph2(x, y1, y2, labels=['0', '1'], xlim=None, ylim=None, title='',
-           yerrs=None, xlabel='', ylabel='', fileName='', markers=('b-', 'g-'),
-           legendLocation='upper right', doPlot=True):
+           yerrs=None, xlabel='', ylabel='', fileName='', x2=None,
+           markers=('b-', 'g-'), legendLocation='upper right', doPlot=True):
     #     plt.figure()
     y1 = np.array(y1)
     y2 = np.array(y2)
+    x2 = x if x2 is None else x2
     plt.plot(x, y1, markers[0], label=labels[0])
-    plt.plot(x, y2, markers[1], label=labels[1])
+    plt.plot(x2, y2, markers[1], label=labels[1])
     if (yerrs is not None and len(yerrs) == 2):
         yerrs0 = np.array(yerrs[0])
         yerrs1 = np.array(yerrs[1])
         plt.fill_between(x, y1 - yerrs0, y1 + yerrs0,
                          alpha=0.2, edgecolor='#1B2ACC', facecolor='b')
         #             linewidth=4, linestyle='dashdot', antialiased=True)
-        plt.fill_between(x, y2 - yerrs1, y2 + yerrs1,
+        plt.fill_between(x2, y2 - yerrs1, y2 + yerrs1,
                          alpha=0.2, edgecolor='#1B2ACC', facecolor='g')
     #             linewidth=4, linestyle='dashdot', antialiased=True)
     plt.title(title)

@@ -75,7 +75,8 @@ class Analyzer(object):
             self.hdfFile = tabu.openHDF5File(self.hdf5FileName)
             self.hdfGroup = tabu.findOrCreateGroup(self.hdfFile,
                 self.STEPS[self.STEP_PRE_PROCCESS])
-        utils.sftp.remoteTempFolder = os.path.join(utils.sftp.remoteFolder,
+        if (utils.sftp is not None):
+            utils.sftp.remoteTempFolder = os.path.join(utils.sftp.remoteFolder,
                 'temp', self.subject)
         print('init analyzer for {}'.format(self.subject))
 
@@ -114,7 +115,7 @@ class Analyzer(object):
         print('saving the data')
         self.saveXY(trials, labels, self.STEP_PRE_PROCCESS, trialsInfo)
         if (not self.variesT):
-            np.save(self.timeAxisFileName, self.timeAxis)
+            np.save(self.timeAxisFileName, self.xAxis)
 
     def loadData(self):
         matlabFullPath = os.path.join(self.folder, self.subject,
@@ -125,9 +126,9 @@ class Analyzer(object):
     def loadOriginalTimeAxis(self):
         # Save the time axis
         timeAxisFullPath = os.path.join(self.folder, self.subject,
-            'timeAxis.mat')
+            'xAxis.mat')
         timeAxisDic = utils.loadMatlab(timeAxisFullPath)
-        self.timeAxis = np.array(timeAxisDic['timeAxis'][0])
+        self.xAxis = np.array(timeAxisDic['xAxis'][0])
 
     def loadTimeAxis(self):
         timeAxis = utils.load(self.timeAxisFileName, useNumpy=True)
@@ -335,7 +336,7 @@ class Analyzer(object):
         sensorsFolder = '{}/{}/sensors'.format(self.folder, self.subject)
         utils.createDirectory(sensorsFolder)
         for c in range(C):
-            plots.graph2(self.timeAxis, x0[:, c], x1[:, c],
+            plots.graph2(self.xAxis, x0[:, c], x1[:, c],
                 [self.LABELS[self.procID][0],
                  self.LABELS[self.procID][1]],
                 fileName='{}/sensor{}'.format(sensorsFolder, c))
@@ -1098,8 +1099,8 @@ class Analyzer(object):
 
     def calcTimeStep(self, T=None):
         ''' return time bin '''
-#         timeAxis = utils.load(self.timeAxisFileName, useNumpy=True)
-        return (self.timeAxis[1] - self.timeAxis[0])
+#         xAxis = utils.load(self.timeAxisFileName, useNumpy=True)
+        return (self.xAxis[1] - self.xAxis[0])
 
     def getStepName(self, stepID):
         return self.STEPS[stepID]

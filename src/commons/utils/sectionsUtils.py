@@ -13,9 +13,11 @@ import numpy as np
 
 
 def findSigSectionsInPValues(X, y, selector, alpha, sigSectionMinLength,
-            timeAxis, cvIndices=None, timeIndices=None, weights=None,
-            maxSurpriseVal=20, labels=['0', '1'], doPlotSections=True):
-    C = X.shape[2]
+            xAxis, cvIndices=None, timeIndices=None, weights=None,
+            maxSurpriseVal=20, labels=['0', '1'],
+            doPlotSections=True):
+    C = calcSectionsNum(X, None, weights)
+    # print('findSigSectionsInPValues: {} sections'.format(C))
     sections = {}
     for c in range(C):
         xc = calcSlice(X, c, cvIndices, timeIndices, weights)
@@ -25,32 +27,18 @@ def findSigSectionsInPValues(X, y, selector, alpha, sigSectionMinLength,
         if (len(sigSections) > 0):
             sections[c] = sigSections
         if (doPlotSections):
-            plot2PSAndSctions(timeAxis, model, sigSections, X[:, :, c], y,
+            plot2PSAndSctions(xAxis, model, sigSections, X[:, :, c], y,
                 alpha, maxSurpriseVal=maxSurpriseVal,
                 xlabel='Time (ms)', labels=labels)
     return sections
 
 
-def preCalcPS(X, minFreq, maxFreq, timeStep, cvIndices=None,
-              timeIndices=None, weights=None):
-    CW = X.shape[2] if X.ndim > 1 else X[0].shape[1]
-    C = CW if weights is None else weights.shape[0]
-    pss = [None] * C
-    for c in range(C):
-        xc = calcSlice(X, c, cvIndices, timeIndices, weights)
-        freqs, ps = freqsUtils.calcPS(xc, timeStep, minFreq, maxFreq)
-        pss[c] = ps
-    pss = np.array(pss)
-    return pss, freqs
-
-
 def findSigSectionsPSInPValues(X, y, selector, timeStep, minFreq, maxFreq,
             alpha, minSegSectionLen, cvIndices=None, timeIndices=None,
             weights=None, preCalcPSS=None, preCalcFreqs=None,
-            maxSurpriseVal=20, labels=['0', '1'],
+            cFirstDim=False, maxSurpriseVal=20, labels=['0', '1'],
             doPlotSections=True, sectionsKeys=None):
-    CW = X.shape[2] if X.ndim > 1 else X[0].shape[1]
-    C = CW if weights is None else weights.shape[0]
+    C = calcSectionsNum(X, preCalcPSS, weights, cFirstDim)
     sections = {}
     sectionsDic = {}
     if (sectionsKeys is None):
@@ -94,25 +82,54 @@ def findSigSectionsPSInPValues(X, y, selector, timeStep, minFreq, maxFreq,
 
 
 def calcSlice(X, c, cvIndices, timeIndices, weights):
-    if (cvIndices is None and timeIndices is None):
-        xc = X[:, :, c] if weights is None else \
-             np.dot(X[:, :, :], weights[c, :].T)
-    elif (cvIndices is not None and timeIndices is None):
-        xc = X[cvIndices, :, c] if weights is None else \
-             np.dot(X[cvIndices, :, :], weights[c, :].T)
-    elif (cvIndices is None and timeIndices is not None):
-        xc = X[:, timeIndices, c] if weights is None else \
-             np.dot(X[:, timeIndices, :], weights[c, :].T)
+    if (X.ndim > 1):
+        if (cvIndices is None and timeIndices is None):
+            xc = X[:, :, c] if weights is None else \
+                 np.dot(X[:, :, :], weights[c, :].T)
+        elif (cvIndices is not None and timeIndices is None):
+            xc = X[cvIndices, :, c] if weights is None else \
+                 np.dot(X[cvIndices, :, :], weights[c, :].T)
+        elif (cvIndices is None and timeIndices is not None):
+            xc = X[:, timeIndices, c] if weights is None else \
+                 np.dot(X[:, timeIndices, :], weights[c, :].T)
+        else:
+            xc = X[:, timeIndices, c][cvIndices, :] if weights is None else \
+                 np.dot(X[cvIndices, timeIndices, :], weights[c, :].T)
+            # X[cvIndices, timeIndices, c] gives the following error:
+            # ValueError: shape mismatch: objects cannot be broadcast
+            # to a single shape
     else:
-        xc = X[:, timeIndices, c][cvIndices, :] if weights is None else \
-             np.dot(X[cvIndices, timeIndices, :], weights[c, :].T)
-        # X[cvIndices, timeIndices, c] gives the following error:
-        # ValueError: shape mismatch: objects cannot be broadcast
-        # to a single shape
+        # Each time series in X has different length
+        if (cvIndices is None and timeIndices is None):
+            xc = [x[:, c] for x in X] if weights is None else \
+                 [np.dot(x[:, c], weights[c, :].T) for x in X]
+        elif (cvIndices is not None and timeIndices is None):
+            xc = [x[:, c] for x in X[cvIndices]] if weights is None else \
+                 [np.dot(x[:, c], weights[c, :].T) for x in X[cvIndices]]
+        elif (cvIndices is None and timeIndices is not None):
+            xc = [x[timeIndices, c] for x in X] if weights is None else \
+                 [np.dot(x[timeIndices, c], weights[c, :].T) for x in X]
+        else:
+            xc = [x[timeIndices, c] for x in X[cvIndices]] if weights is None else \
+                 [np.dot(x[timeIndices, c], weights[c, :].T) for x in X[cvIndices]]
+        xc = np.array(xc)
+# 
+#     print('c is first dim!')
+#     xc = np.array(X[c])
+#     if (cvIndices is not None and timeIndices is None):
+#         xc = xc[cvIndices] if weights is None else \
+#              np.dot(xc[cvIndices], weights[c, :].T)
+#     elif (cvIndices is None and timeIndices is not None):
+#         xc = [x[timeIndices] for x in xc] if weights is None else \
+#              [np.dot(x[timeIndices], weights[c, :].T) for x in xc]
+#     else:
+#         xc = [x[timeIndices] for x in xc[cvIndices]] if weights is None else \
+#              [np.dot(x[timeIndices], weights[c, :].T) for x in xc[cvIndices]]
     return xc
 
 
-def findSectionSmallerThan(x, threshold, sigSectionMinLength, smallerOrEquall=False, removeSmallGaps=False):
+def findSectionSmallerThan(x, threshold, sigSectionMinLength,
+        smallerOrEquall=True, removeSmallGaps=True):
     if (smallerOrEquall):
         sigIndices = np.where(x <= threshold)[0]
     else:
@@ -145,7 +162,7 @@ def findSectionSmallerThan(x, threshold, sigSectionMinLength, smallerOrEquall=Fa
     return sigSections
 
 
-def concatenateFeaturesFromSections(X, sections, onlyMidValue):
+def concatenateFeaturesFromSections(X, sections, onlyMidValue=True, cvIndices=None):
     features = []
     for c, sensorSections in sections.iteritems():
         indices = []
@@ -154,8 +171,10 @@ def concatenateFeaturesFromSections(X, sections, onlyMidValue):
                 indices.append(sec[2])
             else:
                 indices.extend(range(sec[0], sec[1] + 1))
-        if (len(indices) > 0):
-            features = utils.matHAppend(features, X[:, indices, c])
+        if len(indices) > 0:
+            features = utils.matHAppend(features, X[:, indices, c][cvIndices, :]) \
+                if (cvIndices is not None) else \
+                utils.matHAppend(features, X[:, indices, c])
     return np.array(features)
 
 
@@ -202,3 +221,17 @@ def plotSection(fs, model, sigSections, alpha, minVal, maxVal, xlabel,
     plots.plt.ylabel('Surprise')
     if (doShow):
         plots.plt.show()
+
+
+def calcSectionsNum(X, preCalcPSS, weights):
+    if (weights is None):
+        if (preCalcPSS is None):
+            if (X.ndim > 1):
+                C = X.shape[2]
+            else:
+                C = X[0].shape[1]
+        else:
+            C = preCalcPSS.shape[0]
+    else:
+        C = weights.shape[0]
+    return C

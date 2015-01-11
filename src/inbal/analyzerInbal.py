@@ -11,6 +11,25 @@ import os
 import numpy as np
 
 
+class AnalyzerInbalSuper(object):
+    PROCS_NAMES = ['3OrRN', '3orgOr3Diff', '3Or2']
+    PROC_3_RN, PROC_3ORG_3Diff, PROC_3_2 = range(3)
+    LABELS = [['3', 'RN'], ['3org', '3diff'], ['3', '2']]
+
+
+    def loadData(self):
+        matlabFullPath = os.path.join(self.folder, self.subject,
+            self.matlabFile)
+        matlabDic = utils.loadMatlab(matlabFullPath)
+        return matlabDic
+
+class AnalyzerInbalClusters(AnalyzerFreqsSelector):
+
+    def __init__(self, *args, **kwargs):
+        kwargs['indetifier'] = 'inbalClusters'
+        super(AnalyzerInbal, self).__init__(*args, **kwargs)
+
+
 class AnalyzerInbal(AnalyzerFreqsSelector):
     PROCS_NAMES = ['3OrRN', '3orgOr3Diff', '3Or2']
     PROC_3_RN, PROC_3ORG_3Diff, PROC_3_2 = range(3)
@@ -37,7 +56,7 @@ class AnalyzerInbal(AnalyzerFreqsSelector):
             matlabDic['labels'][0], matlabDic['ranks'][0])
         T = trials[0][0][0].shape[1]
         onsetInd = self._calcTrialOnset(T)
-        self.timeAxis = self.timeAxis[onsetInd:]
+        self.xAxis = self.xAxis[onsetInd:]
         for trial, label, rank in zip(trials, labels, ranks):
             yield ((trial[0][0][:, onsetInd:].T, label[0]),
                    {'rank': rank[0][0]})

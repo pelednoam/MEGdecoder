@@ -21,6 +21,7 @@ sys.path.append('/Users/noampeled/Documents/python/scikit-learn')
 FOLDER_LAB = '/Users/noampeled/Copy/Data/MEG/InbalData/Data5_35Hz'
 FOLDER_HOME = '/home/noam/Documents/MEGdata/Inbal'
 FOLDER_SERVER = '/home/noam/Documents/MEGdata/inbalData'
+FOLDER_CLUSTERS = '/Users/noampeled/Documents/MEG/inbalClusters'
 LOCAL_TEMP_FOLDER = '/home/noam/Documents/MEGdata/Inbal/svmFiles/temp'
 REMOTE_FILES_FOLDER = os.path.join(FOLDER_LAB,'svmFiles')
 

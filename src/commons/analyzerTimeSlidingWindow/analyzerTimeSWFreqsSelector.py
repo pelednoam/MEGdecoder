@@ -8,17 +8,15 @@ from src.commons.analyzer.analyzer import Analyzer
 from src.commons.analyzerTimeSlidingWindow.analyzerTimeSWSelector import \
     AnalyzerTimeSWSelector
 from src.commons.sliders.timeSliders import TimeWindowSlider
-from src.commons.utils import utils
-from src.commons.utils import mpHelper
 from src.commons.selectors.frequenciesSelector import FrequenciesSelector
+from src.commons.utils import mpHelper
 from src.commons.utils import tablesUtils as tabu
 from src.commons.utils import sectionsUtils as su
+from src.commons.utils import freqsUtils as fu
 
 from sklearn.datasets.base import Bunch
 import itertools
 from collections import namedtuple
-import random
-import numpy as np
 
 
 class AnalyzerTimeSWFreqsSelector(AnalyzerTimeSWSelector):
@@ -33,29 +31,28 @@ class AnalyzerTimeSWFreqsSelector(AnalyzerTimeSWSelector):
         T = p.x.shape[1]
         print('T is {}'.format(T))
         timeStep = self.calcTimeStep(T)
-        pss, freqs = su.preCalcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
-            timeStep)
         cv = list(p.cv)
         paramsNum = len(cv) * totalWindowsNum
-        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-        trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
-        for fold, (trainIndex, testIndex) in enumerate(cv):
-            pssTrain = pss[:, trainIndex, :]
-            pssTest = pss[:, testIndex, :]
-            shuffleIndices = None
-            if (self.shuffleLabels):
-                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
-                    self.useSmote)
-            for windowSize, windowsNum in windowsGenerator:
-                timeSlider = TimeWindowSlider(0, windowSize, windowsNum, T)
-                for startIndex in timeSlider.windowsGenerator():
+        for windowSize, windowsNum in windowsGenerator:
+            timeSlider = TimeWindowSlider(0, windowSize, windowsNum, T)
+            for timeSlider.startIndex in timeSlider.windowsGenerator():
+                timeIndices = timeSlider.transform(p.x, returnIndices=True)
+                pss, freqs = fu.calcPSX(p.x, min(p.minFreqs),
+                    max(p.maxFreqs), timeStep, timeIndices=timeIndices)
+                for fold, (trainIndex, testIndex) in enumerate(cv):
+                    pssTrain = pss[:, trainIndex, :]
+                    pssTest = pss[:, testIndex, :]
+                    shuffleIndices = None
+                    if (self.shuffleLabels):
+                        p.y, shuffleIndices = self.permutateTheLabels(p.y,
+                            trainIndex, self.useSmote)
                     params.append(Bunch(
-                        x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
-                        trialsInfo=trialsInfo, fold=fold, paramsNum=paramsNum,
+                        y=p.y, trainIndex=trainIndex, testIndex=testIndex,
+                        fold=fold, paramsNum=paramsNum,
                         pssTrain=mpHelper.ForkedData(pssTrain),
                         pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
                         windowSize=windowSize, windowsNum=windowsNum,
-                        startIndex=startIndex, index=index,
+                        startIndex=timeSlider.startIndex, index=index,
                         sigSectionMinLengths=p.sigSectionMinLengths,
                         sigSectionAlphas=p.sigSectionAlphas,
                         minFreqs=p.minFreqs, maxFreqs=p.maxFreqs,

@@ -37,10 +37,8 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
         timeStep = self.calcTimeStep(T)
         cv = list(p.cv)
         paramsNum = len(cv) * totalWindowsNum
-        pss, freqs = su.preCalcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
+        pss, freqs = su.calcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
             timeStep)
-        x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
-        trialsInfo = None if tabu.DEF_TABLES else p.trialsInfo
         for fold, (trainIndex, testIndex) in enumerate(cv):
             pssTrain = pss[:, trainIndex, :]
             pssTest = pss[:, testIndex, :]
@@ -54,8 +52,8 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
                 for windowMinFreq, windowMaxFreq in \
                         freqsSlider.windowsGenerator():
                     params.append(Bunch(
-                        x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
-                        trialsInfo=trialsInfo, fold=fold, paramsNum=paramsNum,
+                        y=p.y, trainIndex=trainIndex, testIndex=testIndex,
+                        fold=fold, paramsNum=paramsNum,
                         pssTrain=mpHelper.ForkedData(pssTrain),
                         pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
                         windowSize=windowSize, windowsNum=windowsNum,
@@ -78,21 +76,19 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
             if (not doCalc):
                 return resultsFileName
             print('{} out of {}'.format(p.index, p.paramsNum))
-            x, ytrain, ytest, p.trialsInfo, _ = self._preparePPInit(p)
+            _, ytrain, ytest, _, _ = self._preparePPInit(p, getX=False)
             pssTrain = p.pssTrain.value
             pssTest = p.pssTest.value
-            T = x.shape[1]
-            timeStep = self.calcTimeStep(T)
             bestScore = Bunch(auc=0.5, gmean=0.5)
             bestParams = Bunch(auc=None, gmean=None)
             externalParams = Bunch(fold=p.fold, windowSize=p.windowSize,
                 windowsNum=p.windowsNum, minFreq=p.minFreq)
             for hp in self.parametersGenerator(p):
-                selector = self.selectorFactory(timeStep, hp)
+                selector = self.selectorFactory(None, hp)
                 xtrainFeatures = selector.fit_transform(
-                    x, ytrain, p.trainIndex,
+                    None, ytrain, p.trainIndex,
                     preCalcPSS=pssTrain, preCalcFreqs=p.freqs)
-                xtestFeatures = selector.transform(x, p.testIndex,
+                xtestFeatures = selector.transform(None, p.testIndex,
                     preCalcPSS=pssTest, preCalcFreqs=p.freqs)
                 if (xtrainFeatures.shape[0] > 0 and
                         xtestFeatures.shape[0] > 0):
@@ -175,9 +171,9 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
                     plots.graph2(xAxis, scoresMean, scoresShuffleMean,
                         yerrs=[scoresStd, scoresShuffleStd],
                         xlabel='Freqs (Hz)', ylabel='Accuracy', title=accFunc,
-                        labels=['scores', 'shuffle'], doPlot=False, fileName='{}_FreqsAccuracy'.format(self.subject))
+                        labels=['scores', 'shuffle'], doPlot=doPlot, fileName='{}_FreqsAccuracy'.format(self.subject))
                     plots.graph2(xAxis, ps, np.ones(ps.shape) * 0.05, xlabel='Freqs (Hz)',
-                        ylabel='Significance', markers=('b-', 'r--'), doPlot=False, fileName='{}_FreqsAccuracySignificance'.format(self.subject))
+                        ylabel='Significance', markers=('b-', 'r--'), doPlot=doPlot, fileName='{}_FreqsAccuracySignificance'.format(self.subject))
 
         return allPs, xAxis
 

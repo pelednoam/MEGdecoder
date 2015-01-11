@@ -19,6 +19,16 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 RESULTS_FILE_NAME = path.join(path(__file__).parent.parent.parent,
     'output.txt')
 
+FOLDER_LAB = '/Users/noampeled/Copy/Data/facialExpressions'
+FOLDER_HOME = '/home/noam/Documents/facialExpressions'
+FOLDER_OHAD = FOLDER_HOME
+
+FOLDER = FOLDER_LAB if utils.folderExists(FOLDER_LAB) else FOLDER_HOME if \
+    utils.folderExists(FOLDER_HOME) else ''
+if (FOLDER == ''):
+    utils.throwException('No data folder!')
+utils.DUMPER_FOLDER = utils.createDirectory(os.path.join(FOLDER, 'dumper'))
+
 SUBJECTS = range(22)
 
 
@@ -37,23 +47,19 @@ def readData():
     procID = AnalyzerFESuper.PROC_LEAVE_STAY
     tablesUtils.DEF_TABLES = False
 
-    for subject in set(SUBJECTS):
-        try:
-            analyze = AnalyzerFE('', '', subject,
-                doLoadOriginalTimeAxis=False, variesT=True,
-                procID=procID, jobsNum=JOBS)
-            analyze.preProcess()
-            analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
-                kernels=kernels, testSize=TEST_SIZE,
-                sigSectionMinLengths=sigSectionMinLengths,
-                sigSectionAlphas=sigSectionAlphas,
-                minFreqs=minFreqs, maxFreqs=maxFreqs,
-                onlyMidValueOptions=onlyMidValueOptions)
-            analyze.calculatePredictionsScores()
-            analyze.analyzeResults()
-        except:
-            print('error with subject {}'.format(subject))
-            print traceback.format_exc()
+    try:
+        analyze = AnalyzerFE(FOLDER, '', 'all',
+            doLoadOriginalTimeAxis=False, variesT=True,
+            procID=procID, jobsNum=JOBS)
+#         analyze.preProcess()
+        analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
+            kernels=kernels, testSize=TEST_SIZE,
+            sigSectionMinLengths=sigSectionMinLengths,
+            sigSectionAlphas=sigSectionAlphas,
+            minFreqs=minFreqs, maxFreqs=maxFreqs,
+            onlyMidValueOptions=onlyMidValueOptions)
+    except:
+        print traceback.format_exc()
 
 if __name__ == '__main__':
     args = sys.argv[1:]
