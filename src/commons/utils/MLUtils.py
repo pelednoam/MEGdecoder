@@ -150,6 +150,29 @@ def calcPredition(probs, threshold=0.5):
     return ypred
 
 
+def isBinaryProblem(y, trainInd=None, testInd=None):
+    c1 = len(utils.count(y)) if trainInd is None and testInd is None else 2
+    c2 = len(utils.count(y[trainInd])) if trainInd is not None else 2
+    c3 = len(utils.count(y[testInd])) if testInd is not None else 2
+    return (c1 == 2 and c2 == 2 and c3 == 2)
+
+
+def undersampling(x, y):
+    actionsCount = Counter(y)
+    if (len(actionsCount) < 2):
+        return x, y
+
+    minorityLabel, majorityLabel = (0, 1) \
+        if actionsCount[0] < actionsCount[1] else (1, 0)
+
+    minorityActionsIndices = np.where(y == minorityLabel)[0]
+    majorityActionsIndices = np.where(y == majorityLabel)[0]
+    majorityActionsUnderSampled = random.sample(majorityActionsIndices, actionsCount[minorityLabel])
+    resultsIndices = np.concatenate((minorityActionsIndices, majorityActionsUnderSampled))
+    random.shuffle(resultsIndices)
+    return x[resultsIndices], y[resultsIndices]
+
+
 def boost(x, y, pickRand=True):
     actionsCount = Counter(y)
     if (len(actionsCount) < 2):

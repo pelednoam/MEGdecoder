@@ -29,14 +29,12 @@ if (FOLDER == ''):
     utils.throwException('No data folder!')
 utils.DUMPER_FOLDER = utils.createDirectory(os.path.join(FOLDER, 'dumper'))
 
-SUBJECTS = range(22)
 
-
-def readData():
-    Cs = np.logspace(-3, 3, 7)
-    gammas = np.logspace(-9, 0, 5)
-    kernels = ['rbf', 'linear']
-    sigSectionMinLengths = [1, 2, 3]
+def readData(shuffleLabelsOptions=[False, True]):
+    Cs = [1]# np.logspace(-1, 1, 3) # np.logspace(-3, 3, 7)
+    gammas = [0] # np.logspace(-1, 0, 2) # np.logspace(-9, 0, 5)
+    kernels = ['rbf'] # ['rbf', 'linear']
+    sigSectionMinLengths = [3] # [1, 2, 3]
     sigSectionAlphas = [0.05, 0.1, 0.2, 0.3]
     minFreqs = [0]
     maxFreqs = [40]
@@ -47,19 +45,31 @@ def readData():
     procID = AnalyzerFESuper.PROC_LEAVE_STAY
     tablesUtils.DEF_TABLES = False
 
-    try:
-        analyze = AnalyzerFE(FOLDER, '', 'all',
-            doLoadOriginalTimeAxis=False, variesT=True,
-            procID=procID, jobsNum=JOBS)
-#         analyze.preProcess()
-        analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
-            kernels=kernels, testSize=TEST_SIZE,
-            sigSectionMinLengths=sigSectionMinLengths,
-            sigSectionAlphas=sigSectionAlphas,
-            minFreqs=minFreqs, maxFreqs=maxFreqs,
-            onlyMidValueOptions=onlyMidValueOptions)
-    except:
-        print traceback.format_exc()
+    for shuffleLabels in shuffleLabelsOptions:
+        try:
+            analyze = AnalyzerFE(FOLDER, '', 'all',
+                doLoadOriginalTimeAxis=False, variesT=True,
+                procID=procID, jobsNum=JOBS, leaveOneSubjectOutFolds=True,
+                useUnderSampling=True, shuffleLabels=shuffleLabels)
+    #         analyze.preProcess()
+#             analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
+#                 kernels=kernels, testSize=TEST_SIZE,
+#                 sigSectionMinLengths=sigSectionMinLengths,
+#                 sigSectionAlphas=sigSectionAlphas,
+#                 minFreqs=minFreqs, maxFreqs=maxFreqs,
+#                 onlyMidValueOptions=onlyMidValueOptions)
+            analyze.getBestEstimators(getRemoteFiles=False)
+#             analyze.analyzeResults(doPlot=True)
+
+        except:
+            print traceback.format_exc()
+
+    analyze = AnalyzerFE(FOLDER, '', 'all',
+        doLoadOriginalTimeAxis=False, variesT=True,
+        procID=procID, jobsNum=JOBS, leaveOneSubjectOutFolds=True,
+        useUnderSampling=True)
+    analyze.findSignificantResults(doPlot=True, overwrite=False)
+
 
 if __name__ == '__main__':
     args = sys.argv[1:]

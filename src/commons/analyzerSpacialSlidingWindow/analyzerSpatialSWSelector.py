@@ -5,6 +5,7 @@ Created on Aug 17, 2014
 '''
 from src.commons.analyzerTimeSlidingWindow.analyzerTimeSWSelector import AnalyzerTimeSWSelector
 from src.commons.sliders.spacialSliders import SpatialWindowSlider
+from src.commons.selectors.timeSelector import TimeSelector
 from src.commons.utils import utils
 from src.commons.utils import MLUtils
 from src.commons.utils import plots
@@ -28,31 +29,22 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
                 resultsFileNames.append(resultsFileName)
                 if (not doCalc):
                     continue
-                y = tabu.findTable(self.hdfFile, 'y', self.defaultGroup) \
-                    if tabu.DEF_TABLES else p.y
-                ytrain = y[p.trainIndex]
-                ytest = y[p.testIndex]
+                cube, ytrain, ytest, _, _ = self._preparePPInit(p)
+                x = cube.x
                 print('{} out of {}'.format(p.index, p.paramsNum))
 
-                pssTrain = p.pssTrain.value
-                pssTest = p.pssTest.value
-#                 T = x.shape[1]
-#                 timeStep = self.calcTimeStep(T)
                 bestScore = Bunch(auc=0.5, gmean=0.5)
                 bestParams = Bunch(auc=None, gmean=None)
                 externalParams = Bunch(fold=p.fold, xCubeSize=p.xCubeSize,
                     yCubeSize=p.yCubeSize, zCubeSize=p.zCubeSize,
                     windowsOverlapped=p.windowsOverlapped,
-                    xlim=p.xlim, ylim=p.ylim, zlim=p.zlim,
-                    cubeIndex=p.cubeIndex, voxelIndices=p.voxelIndices)
+                    cubeIndex=p.cubeIndex)
                 for hp in self.parametersGenerator(p):
-                    selector = self.selectorFactory(None, hp)
+                    hp.voxelIndices = cube.voxelIndices
+                    selector = self.selectorFactory(hp)
                     xtrainFeatures = selector.fit_transform(
-                        None, ytrain, p.trainIndex, None, p.cubeWeights,
-                        preCalcPSS=pssTrain, preCalcFreqs=p.freqs)
-                    xtestFeatures = selector.transform(None, p.testIndex,
-                        None, p.cubeWeights, preCalcPSS=pssTest,
-                        preCalcFreqs=p.freqs)
+                        x, ytrain, p.trainIndex)
+                    xtestFeatures = selector.transform(x, p.testIndex)
                     hp.sections = selector.sections.keys()
                     hp.sectionsDic = selector.sectionsDic
                     if (xtrainFeatures.shape[0] > 0 and
@@ -76,6 +68,11 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
             utils.save((externalParams, bestScore, bestParams), resultsFileName)
 
         return resultsFileNames
+
+    def selectorFactory(self, p, maxSurpriseVal=20, doPlotSections=False):
+        return TimeSelector(p.sigSectionAlpha, p.sigSectionMinLength,
+            p.onlyMidValue, self.xAxis, maxSurpriseVal,
+            self.LABELS[self.procID], doPlotSections, p.voxelIndices)
 
     def resultsKeys(self, p):
         return (p.xCubeSize, p.yCubeSize, p.zCubeSize), p.cubeIndex

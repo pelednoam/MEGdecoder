@@ -42,17 +42,15 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
         for fold, (trainIndex, testIndex) in enumerate(cv):
             pssTrain = pss[:, trainIndex, :]
             pssTest = pss[:, testIndex, :]
-            shuffleIndices = None
-            if (self.shuffleLabels):
-                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
-                    self.useSmote)
+            y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                self.useSmote) if self.shuffleLabels else (p.y, None)
             for minFreq, maxFreq, windowSize, windowsNum in windowsGenerator:
                 freqsSlider = FreqsWindowSlider(minFreq, maxFreq,
                     windowSize, windowsNum)
                 for windowMinFreq, windowMaxFreq in \
                         freqsSlider.windowsGenerator():
                     params.append(Bunch(
-                        y=p.y, trainIndex=trainIndex, testIndex=testIndex,
+                        y=y, trainIndex=trainIndex, testIndex=testIndex,
                         fold=fold, paramsNum=paramsNum,
                         pssTrain=mpHelper.ForkedData(pssTrain),
                         pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,

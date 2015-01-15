@@ -27,12 +27,10 @@ class AnalyzerTimeSelector(AnalyzerSelector):
         index = 0
         x = None if tabu.DEF_TABLES else mpHelper.ForkedData(p.x)
         for fold, (trainIndex, testIndex) in enumerate(p.cv):
-            shuffleIndices = None
-            if (self.shuffleLabels):
-                p.y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
-                    self.useSmote)
+            y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                self.useSmote) if self.shuffleLabels else (p.y, None)
             params.append(Bunch(
-                x=x, y=p.y, trainIndex=trainIndex, testIndex=testIndex,
+                x=x, y=y, trainIndex=trainIndex, testIndex=testIndex,
                 trialInfo=p.trialsInfo, fold=fold, paramsNum=paramsNum,
                 sigSectionMinLengths=p.sigSectionMinLengths,
                 sigSectionAlphas=p.sigSectionAlphas, index=index,

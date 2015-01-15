@@ -7,40 +7,39 @@ Created on Nov 9, 2014
 import plots
 import utils
 import freqsUtils
-import traceback
-
 import numpy as np
 
 
 def findSigSectionsInPValues(X, y, selector, alpha, sigSectionMinLength,
             xAxis, cvIndices=None, timeIndices=None, weights=None,
             maxSurpriseVal=20, labels=['0', '1'],
-            doPlotSections=True):
+            doPlotSections=True, sectionsKeys=None):
     C = calcSectionsNum(X, None, weights)
-    # print('findSigSectionsInPValues: {} sections'.format(C))
-    sections = {}
-    for c in range(C):
+    sections, sectionsDic = {}, {}
+    if (sectionsKeys is None):
+        sectionsKeys = [None] * C
+    for c, sectionKey in zip(range(C), sectionsKeys):
         xc = calcSlice(X, c, cvIndices, timeIndices, weights)
         model = selector.fit(xc, y)
         sigSections = findSectionSmallerThan(model.pvalues_,
             alpha, sigSectionMinLength)
         if (len(sigSections) > 0):
             sections[c] = sigSections
+            sectionsDic[c] = sectionKey
         if (doPlotSections):
             plot2PSAndSctions(xAxis, model, sigSections, X[:, :, c], y,
                 alpha, maxSurpriseVal=maxSurpriseVal,
                 xlabel='Time (ms)', labels=labels)
-    return sections
+    return sections, sectionsDic
 
 
 def findSigSectionsPSInPValues(X, y, selector, timeStep, minFreq, maxFreq,
             alpha, minSegSectionLen, cvIndices=None, timeIndices=None,
             weights=None, preCalcPSS=None, preCalcFreqs=None,
-            cFirstDim=False, maxSurpriseVal=20, labels=['0', '1'],
+            maxSurpriseVal=20, labels=['0', '1'],
             doPlotSections=True, sectionsKeys=None):
-    C = calcSectionsNum(X, preCalcPSS, weights, cFirstDim)
-    sections = {}
-    sectionsDic = {}
+    C = calcSectionsNum(X, preCalcPSS, weights)
+    sections, sectionsDic = {}, {}
     if (sectionsKeys is None):
         sectionsKeys = [None] * C
     for c, sectionKey in zip(range(C), sectionsKeys):

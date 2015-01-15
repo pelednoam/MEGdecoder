@@ -38,7 +38,7 @@ RESULTS_FILE_NAME = path.join(path(__file__).parent.parent.parent,
     'output.txt')
 
 FTP_NOAM, FTP_OHAD, FTP_OHAD_FROM_LAB = range(3)
-FTP_SERVER = FTP_OHAD_FROM_LAB
+FTP_SERVER = FTP_NOAM
 PORT = 22 if FTP_SERVER == FTP_OHAD_FROM_LAB else 9991
 FTP_USER = 'noam' if FTP_SERVER in [FTP_OHAD, FTP_OHAD_FROM_LAB] else 'noampeled'
 FTP_FOLDER = os.path.join(FOLDER_LAB, 'svmFiles') if FTP_SERVER == FTP_NOAM \
@@ -109,7 +109,7 @@ def readDataSpacialSW(shuffleLabelsOptions=[False, True],
     windowsOverlapped = [True]
     subjects = ['dor']
 
-    for subject in []:
+    for subject in subjects:
         for shuffleLabels in shuffleLabelsOptions:
             try:
                 analyze = AnalyzerCentipedeSpacialSWFreqs(
@@ -132,7 +132,7 @@ def readDataSpacialSW(shuffleLabelsOptions=[False, True],
                 print('error with subject {}'.format(subject))
                 print traceback.format_exc()
 
-    for subject in subjects:
+    for subject in []:
         try:
             analyze = AnalyzerCentipedeSpacialSWFreqs(
                 FOLDER, DATA_FILE, subject,
@@ -353,8 +353,8 @@ if __name__ == '__main__':
 
     t = utils.ticToc()
 #     readData(useSmote=True)
-#     readDataSpacialSW()
-    readDataTimeSlidingWindow()
+    readDataSpacialSW()
+#     readDataTimeSlidingWindow()
 #     readDataFreqsSlidingWindow()
     howMuchTime = utils.howMuchTimeFromTic(t)
     utils.sendResultsEmail('analyzer is done! {}'.format(howMuchTime),

@@ -7,112 +7,117 @@ Created on Nov 20, 2014
 from src.commons.analyzer.analyzer import Analyzer
 from src.commons.analyzerSpacialSlidingWindow.analyzerSpatialSWSelector \
     import AnalyzerSpacialSWSelector
-from src.commons.selectors.frequenciesSelector import FrequenciesSelector
 from src.commons.sliders.spacialSliders import SpatialWindowSlider
-from src.commons.utils import mpHelper
-from src.commons.utils import tablesUtils as tabu
-from src.commons.utils import utils
-from src.commons.utils import sectionsUtils as su
+from src.commons.utils import mpHelper, MLUtils, utils, freqsUtils as fu
 
 import numpy as np
 from sklearn.datasets.base import Bunch
 import itertools
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 
 
 class AnalyzerSpacialSWFreqsSelector(AnalyzerSpacialSWSelector):
 
+    def getXY(self, stepID, p):
+        if (stepID != self.STEP_PRE_PROCCESS):
+            return super(AnalyzerSpacialSWFreqsSelector, self).getXY(stepID)
+        else:
+            if (utils.fileExists(self.pssFileName)):
+                xCubes, y, trialsInfo = utils.load(self.pssFileName)
+                self.xAxis = utils.load(self.freqsFileName)
+            else:
+                print('Calculate the cubes ps')
+                p = utils.BunchDic(p)
+                x, y, trialsInfo = super(AnalyzerSpacialSWFreqsSelector,
+                    self).getXY(stepID)
+                timeStep = self.calcTimeStep(trialsInfo)
+                weights = self.loadWeights()
+                xlim, ylim, zlim, xstep, ystep, zstep = self.getMetaParameters(p)
+                if ('yCubeSizes' not in p):
+                    p.yCubeSizes = p.xCubeSizes
+                if ('zCubeSizes' not in p):
+                    p.zCubeSizes = p.xCubeSizes
+                cubesParams = list(itertools.product(*(p.xCubeSizes,
+                    p.yCubeSizes, p.zCubeSizes, p.windowsOverlapped)))
+                xCubes = defaultdict(dict)
+                for cubeParams in cubesParams:
+                    xCubeSize, yCubeSize, zCubeSize, windowsOverlapped = cubeParams
+                    spacialSlider = SpatialWindowSlider(
+                        weights.shape[0], xlim, ylim, zlim,
+                        xstep, xCubeSize, ystep, yCubeSize,
+                        zstep, zCubeSize, windowsOverlapped)
+                    cubesNum = spacialSlider.calcCubesNum(weights)
+                    noZerosCubeIndex = 0
+                    for cubeIndex, voxelIndices in \
+                            enumerate(spacialSlider.cubesGenerator()):
+                        cubeWeights = weights[voxelIndices, :]
+                        if (np.all(cubeWeights == 0)):
+                            continue
+                        print('prepare params for cube {}/{}'.format(
+                            noZerosCubeIndex, cubesNum))
+                        noZerosCubeIndex += 1
+                        cubeWeights, zeroLinesIndices = utils.removeZerosLines(
+                            cubeWeights)
+                        voxelIndices = voxelIndices[zeroLinesIndices]
+                        pss, freqs = fu.calcPSX(x, min(p.minFreqs),
+                            max(p.maxFreqs), timeStep, weights=cubeWeights)
+                        xCubes[cubeParams][cubeIndex] = Bunch(x=pss,
+                            voxelIndices=voxelIndices, cubeWeights=cubeWeights)
+                print('save pss and freqs')
+                utils.save((xCubes, y, trialsInfo), self.pssFileName)
+                utils.save(freqs, self.freqsFileName)
+                self.xAxis = freqs
+            return xCubes, y, trialsInfo
+
     def _prepareCVParams(self, p):
         p = p.merge(p.kwargs)
         params = []
-        if ('yCubeSizes' not in p):
-            p.yCubeSizes = p.xCubeSizes
-        if ('zCubeSizes' not in p):
-            p.zCubeSizes = p.xCubeSizes
-
-        weights = self.loadWeights()
-        xlim, ylim, zlim, xstep, ystep, zstep = self.getMetaParameters(p)
-        cubesParams = list(itertools.product(*(p.xCubeSizes, p.yCubeSizes,
-            p.zCubeSizes, p.windowsOverlapped)))
-        totalCubesNum = 0
-        for xCubeSize, yCubeSize, zCubeSize, windowsOverlapped in cubesParams:
-            spacialSlider = SpatialWindowSlider(
-                weights.shape[0], xlim, ylim, zlim,
-                xstep, xCubeSize, ystep, yCubeSize,
-                zstep, zCubeSize, windowsOverlapped)
-            cubesNum = spacialSlider.calcCubesNum(weights)
-            print('xCubeSize {}, yCubeSize {}, zCubeSize {}, windowsOverlapped {}: cubes num: {}'.format(xCubeSize, yCubeSize, zCubeSize, windowsOverlapped, cubesNum))
-            totalCubesNum += cubesNum
+        p.yCubeSizes = p.get('yCubeSizes', p.xCubeSizes)
+        p.zCubeSizes = p.get('zCubeSizes', p.xCubeSizes)
+        totalCubesNum = sum([len(cubes.keys()) for cubes in p.x.values()])
+        cubesParams = list(itertools.product(*(p.xCubeSizes,
+            p.yCubeSizes, p.zCubeSizes, p.windowsOverlapped)))
         paramsNum = len(list(p.cv)) * len(cubesParams) * totalCubesNum
         index = 0
-        T = p.x.shape[1]
-        print('T is {}'.format(T))
-        timeStep = self.calcTimeStep(T)
-        if (self.shuffleLabels):
-            print('Shuffling the labels')
-        for xCubeSize, yCubeSize, zCubeSize, windowsOverlapped in cubesParams:
-            t = utils.ticToc()
-            spacialSlider = SpatialWindowSlider(
-                weights.shape[0], xlim, ylim, zlim,
-                xstep, xCubeSize, ystep, yCubeSize,
-                zstep, zCubeSize, windowsOverlapped)
-            cubesNum = spacialSlider.calcCubesNum(weights)
-            noZerosCubeIndex = 0
-            for cubeIndex, voxelIndices in \
-                    enumerate(spacialSlider.cubesGenerator()):
-                cubeWeights = weights[voxelIndices, :]
-                if (np.all(cubeWeights == 0)):
-                    continue
-                print('prepare params for cube {}/{}'.format(
-                    noZerosCubeIndex, cubesNum))
-                noZerosCubeIndex += 1
-                cubeWeights, zeroLinesIndices = utils.removeZerosLines(
-                    cubeWeights)
-                voxelIndices = voxelIndices[zeroLinesIndices]
-                pss, freqs = su.calcPS(p.x, min(p.minFreqs),
-                    max(p.maxFreqs), timeStep, weights=cubeWeights)
+        for cubeParams in cubesParams:
+            xCubeSize, yCubeSize, zCubeSize, windowsOverlapped = cubeParams
+            cubes = p.x[cubeParams]
+            for cubeIndex, x in cubes.iteritems():
                 for fold, (trainIndex, testIndex) in enumerate(p.cv):
-                    pssTrain = pss[:, trainIndex, :]
-                    pssTest = pss[:, testIndex, :]
-                    shuffleIndices = None
-                    if (self.shuffleLabels):
-                        p.y, shuffleIndices = self.permutateTheLabels(
-                            p.y, trainIndex, self.useSmote)
+                    if (not MLUtils.isBinaryProblem(p.y, trainIndex, testIndex)):
+                        print('fold {} is not binary, continue'.format(fold))
+                        continue
+                    y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                        self.useSmote) if self.shuffleLabels else (p.y, None)
                     params.append(Bunch(
-                        y=p.y, trainIndex=trainIndex, testIndex=testIndex,
-                        fold=fold, weights=weights,
-                        pssTrain=mpHelper.ForkedData(pssTrain),
-                        pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
+                        x=mpHelper.ForkedData(x), y=y, trainIndex=trainIndex,
+                        testIndex=testIndex, fold=fold,
                         sigSectionMinLengths=p.sigSectionMinLengths,
                         sigSectionAlphas=p.sigSectionAlphas,
                         minFreqs=p.minFreqs, maxFreqs=p.maxFreqs,
                         onlyMidValueOptions=p.onlyMidValueOptions,
-                        xlim=xlim, ylim=ylim, zlim=zlim,
-                        xstep=xstep, ystep=ystep, zstep=zstep,
                         xCubeSize=xCubeSize, yCubeSize=yCubeSize,
                         zCubeSize=zCubeSize,
-                        windowsOverlapped=p.windowsOverlapped,
-                        cubeIndex=cubeIndex, voxelIndices=voxelIndices,
-                        cubeWeights=cubeWeights,
+                        windowsOverlapped=windowsOverlapped,
+                        cubeIndex=cubeIndex,
                         kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
                         index=index, paramsNum=paramsNum,
                         shuffleIndices=shuffleIndices))
                     index += 1
 
-            utils.howMuchTimeFromTic(t)
         return params
 
-    def calcCubesPSS(self, spacialSlider, weights, x, minFreq, maxFreq, timeStep):
-        for cubeIndex, voxelIndices in \
-                enumerate(spacialSlider.cubesGenerator()):
-            cubeWeights = weights[voxelIndices, :]
-            if (np.all(cubeWeights == 0)):
-                continue
-            cubeWeights, zeroLinesIndices = utils.removeZerosLines(
-                cubeWeights)
-            voxelIndices = voxelIndices[zeroLinesIndices]
-            pss, freqs = su.calcPS(x, minFreq, maxFreq, timeStep, 
-                weights=cubeWeights)
+#     def calcCubesPSS(self, spacialSlider, weights, x, minFreq, maxFreq, timeStep):
+#         for cubeIndex, voxelIndices in \
+#                 enumerate(spacialSlider.cubesGenerator()):
+#             cubeWeights = weights[voxelIndices, :]
+#             if (np.all(cubeWeights == 0)):
+#                 continue
+#             cubeWeights, zeroLinesIndices = utils.removeZerosLines(
+#                 cubeWeights)
+#             voxelIndices = voxelIndices[zeroLinesIndices]
+#             pss, freqs = su.calcPS(x, minFreq, maxFreq, timeStep, 
+#                 weights=cubeWeights)
 
     def getMetaParameters(self, p={}):
         weightMetaDic = utils.loadMatlab(self.weightsFullMetaFileName(
@@ -135,9 +140,8 @@ class AnalyzerSpacialSWFreqsSelector(AnalyzerSpacialSWSelector):
             p.onlyMidValueOptions, p.sigSectionMinLengths,
             p.sigSectionAlphas)):
                 params = self.createParamsObj(hp)
-                params.windowsOverlapped = p.windowsOverlapped[0]
+                params.windowsOverlapped = p.windowsOverlapped
                 params.cubeIndex = p.cubeIndex
-                params.voxelIndices = p.voxelIndices
                 yield params
 
     def createParamsObj(self, paramsTuple):
@@ -147,12 +151,12 @@ class AnalyzerSpacialSWFreqsSelector(AnalyzerSpacialSWSelector):
             onlyMidValue=onlyMidValue, sigSectionMinLength=sigSectionMinLength,
             sigSectionAlpha=sigSectionAlpha)
 
-    def selectorFactory(self, timeStep, params, maxSurpriseVal=20,
-                        doPlotSections=False):
-        return FrequenciesSelector(timeStep, params.sigSectionAlpha,
-            params.sigSectionMinLength, params.minFreq, params.maxFreq,
-            params.onlyMidValue, maxSurpriseVal,
-            self.LABELS[self.procID], doPlotSections, params.voxelIndices)
+#     def selectorFactory(self, timeStep, params, maxSurpriseVal=20,
+#                         doPlotSections=False):
+#         return FrequenciesSelector(timeStep, params.sigSectionAlpha,
+#             params.sigSectionMinLength, params.minFreq, params.maxFreq,
+#             params.onlyMidValue, maxSurpriseVal,
+#             self.LABELS[self.procID], doPlotSections, params.voxelIndices)
 
     def resultItem(self, selector, p, res, hp, ytest):
         return Bunch(predResults=res, fold=p.fold, ytest=ytest,

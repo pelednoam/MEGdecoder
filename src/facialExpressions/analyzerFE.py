@@ -4,12 +4,9 @@ Created on Nov 25, 2013
 @author: noampeled
 '''
 
-from src.commons.analyzer.analyzer import Analyzer
 from src.commons.analyzerSpacialSlidingWindow.analyzerSpacialSWFreqsSelector import AnalyzerSpacialSWFreqsSelector
 from src.commons.analyzerTimeSlidingWindow.analyzerTimeSWFreqsSelector import AnalyzerTimeSWFreqsSelector
 from src.commons.analyzer.analyzerFreqsSelector import AnalyzerFreqsSelector
-from src.commons.analyzer.analyzerPowerSpectrumSelector import AnalyzerPowerSpectrumSelector
-from src.commons.utils import utils
 from src.commons import scoreFunctions as sf
 from src.commons.utils import MLUtils
 from src.commons.misc.subjectsCV import SubjectsCV
@@ -17,13 +14,8 @@ from src.commons.misc.subjectsCV import SubjectsCV
 import tablesClasses as tc
 import featuresExtraction as fe
 
-import os
 import numpy as np
-from path3 import path
-import operator
-import itertools
-from sklearn.datasets.base import Bunch
-import tables
+
 
 
 class AnalyzerFESuper(object):
@@ -79,7 +71,6 @@ class AnalyzerFESuper(object):
     def calcTimeStep(self, trialsInfo):
         ''' return times bin '''
         return np.array([trialInfo['timeStep'] for trialInfo in trialsInfo])
-
 
     def getChannelsNum(self, matlabDic):
         return self.FEATURES_NUM

@@ -17,6 +17,7 @@ import itertools
 from collections import namedtuple
 import operator
 import traceback
+from collections import defaultdict
 
 from src.commons.utils import utils
 from src.commons.utils import MLUtils
@@ -49,6 +50,7 @@ class Analyzer(object):
             useSpectral=False, plotForPublication=False,
             doLoadOriginalTimeAxis=True, variesT=False,
             matlabFileWithArtifacts='', shuffleLabels=None,
+            leaveOneSubjectOutFolds=False, useUnderSampling=False,
             useSmote=False, jobsNum=1):
         self.folder = folder
         self.matlabFile = matlabFile
@@ -58,6 +60,8 @@ class Analyzer(object):
         if (shuffleLabels is None):
             shuffleLabels = False
             print('No value was set for shuffleLabels! Set to False')
+        if (shuffleLabels):
+            print('shuffleLabels is set to true!')
         self.shuffleLabels = shuffleLabels
         self.useSmote = useSmote
         self.multipleByWeights = multipleByWeights
@@ -67,10 +71,11 @@ class Analyzer(object):
         self.matlabFileWithArtifacts = matlabFileWithArtifacts
         self.jobsNum = jobsNum
         self.variesT = variesT
+        self.useUnderSampling = useUnderSampling
+        self.leaveOneSubjectOutFolds = leaveOneSubjectOutFolds
         if (plotForPublication):
             plots.init()
-        if (doLoadOriginalTimeAxis):
-            self.loadOriginalTimeAxis()
+        self.loadOriginalTimeAxis()
         if (tabu.DEF_TABLES):
             self.hdfFile = tabu.openHDF5File(self.hdf5FileName)
             self.hdfGroup = tabu.findOrCreateGroup(self.hdfFile,
@@ -126,9 +131,12 @@ class Analyzer(object):
     def loadOriginalTimeAxis(self):
         # Save the time axis
         timeAxisFullPath = os.path.join(self.folder, self.subject,
-            'xAxis.mat')
-        timeAxisDic = utils.loadMatlab(timeAxisFullPath)
-        self.xAxis = np.array(timeAxisDic['xAxis'][0])
+            'timeAxis.mat')
+        if (utils.fileExists(timeAxisFullPath)):
+            timeAxisDic = utils.loadMatlab(timeAxisFullPath)
+            self.xAxis = np.array(timeAxisDic['timeAxis'][0])
+        else:
+            print("can't load time axis")
 
     def loadTimeAxis(self):
         timeAxis = utils.load(self.timeAxisFileName, useNumpy=True)
@@ -251,23 +259,55 @@ class Analyzer(object):
                 recordsNum += 1
         return recordsNum, recordsFlags
 
+    def getUnaryFolds(self, cv, y):
+        unaryFolds = set()
+        for fold, (trainIndex, testIndex) in enumerate(cv):
+            if (not MLUtils.isBinaryProblem(y, trainIndex, testIndex)):
+                unaryFolds.add(fold)
+        return unaryFolds
+
     def getBestEstimators(self, getRemoteFiles=False):
         print('loading all the results files')
         results = {}
-        results['gmean'] = {'scores': [], 'params': []}
-        results['auc'] = {'scores': [], 'params': []}
+        if not self.leaveOneSubjectOutFolds:
+            results['gmean'] = {'scores': [], 'params': []}
+            results['auc'] = {'scores': [], 'params': []}
+        else:
+            results['gmean'] = defaultdict(dict)
+            results['auc'] = defaultdict(dict)
 
         print('calculate prediction scores')
         for fileName in self.predictorResultsGenerator(getRemoteFiles):
-            _, bestScore, bestParams = utils.load(fileName)
-            results['gmean']['scores'].append(bestScore.gmean)
-            results['gmean']['params'].append(bestParams.gmean)
-            results['auc']['scores'].append(bestScore.auc)
-            results['auc']['params'].append(bestParams.auc)
+            externalParams, bestScore, bestParams = utils.load(fileName)
+            if not self.leaveOneSubjectOutFolds:
+                results['gmean']['scores'].append(bestScore.gmean)
+                results['gmean']['params'].append(bestParams.gmean)
+                results['auc']['scores'].append(bestScore.auc)
+                results['auc']['params'].append(bestParams.auc)
+            else:
+                key = externalParams.fold
+                if key not in results:
+                    results['gmean'][key] = {'scores': [], 'params': []}
+                    results['auc'][key] = {'scores': [], 'params': []}
+                results['gmean'][key]['scores'].append(bestScore.gmean)
+                results['gmean'][key]['params'].append(bestParams.gmean)
+                results['auc'][key]['scores'].append(bestScore.auc)
+                results['auc'][key]['params'].append(bestParams.auc)
         print('results for {}'.format(self.defaultFileNameBase))
-        for acc in ['auc', 'gmean']:
-            scores = results[acc]['scores']
-            print('{}: {} results: {}'.format(acc, len(scores), np.mean(scores)))
+        for acc in results.keys():
+            if not self.leaveOneSubjectOutFolds:
+                scores = results[acc]['scores']
+                print('{}: {} results: {}'.format(acc, len(scores),
+                    np.mean(scores)))
+            else:
+                allSubjects = []
+                for subject in results[acc].keys():
+                    scores = results[acc][subject]['scores']
+                    allSubjects.extend(scores)
+                    print('{}: {}: {} results: {}'.format(acc, subject,
+                        len(scores), np.mean(scores)))
+                print('All subjects ({}): {}+-{}'.format(len(allSubjects), np.mean(allSubjects),
+                    np.std(allSubjects)))
         print('save results in {}'.format(self.bestEstimatorsFileName))
         utils.save(results, self.bestEstimatorsFileName)
 
@@ -411,7 +451,7 @@ class Analyzer(object):
             except:
                 print('error with _predict!')
                 utils.dump((p, bs, bp, hp, kernel, C, gamma), '_predict', utils.DUMPER_FOLDER)
-                print traceback.format_exc()
+                print(traceback.format_exc())
 
 
 #     def calculatePredictionsScores(self, saveResults=False):
@@ -564,13 +604,22 @@ class Analyzer(object):
 
     def analyzeResults(self, doPlot=True):
         bestEstimators = utils.load(self.bestEstimatorsFileName)
-        predParams = utils.load(self.predictionsParamtersFileName)
-#         colors = sns.color_palette(None, len(bestEstimators))
-        scoresGenerator = self.scoresGenerator(bestEstimators, predParams, calcProbs=False)
-        for score in scoresGenerator:
-            pass        
+        if not self.leaveOneSubjectOutFolds:
+            predParams = utils.load(self.predictionsParamtersFileName)
+    #         colors = sns.color_palette(None, len(bestEstimators))
+            scoresGenerator = self.scoresGenerator(bestEstimators, predParams, calcProbs=False)
+            for score in scoresGenerator:
+                pass
+        else:
+            for acc, results in bestEstimators.iteritems():
+                results = utils.sortDictionaryByKey(results)
+                scores = [np.mean(results[subject]['scores']) for subject \
+                          in results]
+                plots.barPlot(scores, 'Accuracy ({})'.format(acc),
+                    title='Subjects accuracy', startsWithZeroZero=True,
+                    fileName=self.accuracyFileName(acc), doShow=doPlot)
 
-    def findSignificantResults(self, overwrite=False, doShow=True):
+    def findSignificantResults(self, overwrite=False, doPlot=True):
         self.shuffleLabels = True
         print('load {}'.format(self.bestEstimatorsFileName))
         bestEstimatorsShuffle = utils.load(
@@ -583,8 +632,16 @@ class Analyzer(object):
         scores = Bunch(auc=None, gmean=None)
         scoresShuffle = Bunch(auc=None, gmean=None)
         for acc in bestEstimators.keys():
-            scores[acc] = np.array(bestEstimators[acc]['scores'])
-            scoresShuffle[acc] = np.array(bestEstimatorsShuffle[acc]['scores'])
+            if not self.leaveOneSubjectOutFolds:
+                scores[acc] = np.array(bestEstimators[acc]['scores'])
+                scoresShuffle[acc] = np.array(bestEstimatorsShuffle[acc]['scores'])
+            else:
+                scores[acc] = np.array([np.mean(bestEstimators[acc][subject]['scores'])
+                    for subject in bestEstimators[acc]])
+                scoresShuffle[acc] = np.array([np.mean(bestEstimatorsShuffle[acc][subject]['scores'])
+                    for subject in bestEstimatorsShuffle[acc]])
+                plots.barGrouped2(scores[acc], scoresShuffle[acc], xtick=bestEstimators[acc].keys(),
+                    labels=['org', 'shuffle'], ylabel='Accuracy ({})'.format(acc))
             ps[acc] = utils.ttestGreaterThan(scores[acc], scoresShuffle[acc])
         print(ps)
 
@@ -595,7 +652,7 @@ class Analyzer(object):
             ['scores', 'shuffle'], ['auc', 'gmean'],
             title='{}: p(auc):{} p(gmean):{}'.format(self.subject,
             ps['auc'], ps['gmean']), figName='scoreVSshuffle_{}'.format(
-            self.subject), doShow=doShow)
+            self.subject), doShow=doPlot)
 
     def calcHeldOutPrediction(self):
         ''' classification report on heldout data '''
@@ -685,7 +742,7 @@ class Analyzer(object):
         xHeldoutFeaturesTimed = timeSelector.transform(xHeldoutFeatures)
         xHeldoutFeaturesTimedNormalized,_,_ = MLUtils.normalizeData(xHeldoutFeaturesTimed)          
         return xHeldoutFeaturesTimedNormalized
-        
+
     def createHeldoutPredictionReport(self):
         pass
 
@@ -1042,7 +1099,11 @@ class Analyzer(object):
 #     def figureFileName(self,stepID,figType='jpg'):
 #         return '{}.{}'.format(self.dataFileName(stepID, self.figuresFolder)[:-4], figType)
 
-    def ROCFigName(self,figType='jpg'):
+    def accuracyFileName(self, method):
+        return os.path.join(self.figuresFolder,
+            'subjectsAccuracy_{}'.format(method))
+
+    def ROCFigName(self, figType='jpg'):
         return '{}_ROC.{}'.format(self.dataFileName(self.STEP_FEATURES, self.figuresFolder)[:-4], figType)
 
     @property

@@ -706,16 +706,18 @@ def nhist(X,binsNum=10):
         hist, _ = np.histogram(x, bins)
         hists.append(hist)
     return hists
-        
+
+
 def throwException(errStr='Error!'):
     raise Exception(errStr)
 
 
 def filesInFolder(folder, pattern='', getRemoteFiles=False):
     global sftp
-    sftpFolder = os.path.join(sftp.remoteFolder,
-        getRelativePathFromFolder(folder, path(sftp.remoteFolder).namebase))
     if (getRemoteFiles and sftp and sftp.srv is not None):
+        sftpFolder = os.path.join(sftp.remoteFolder,
+            getRelativePathFromFolder(folder, path(
+            sftp.remoteFolder).namebase))
         files = sftp.getFiles(sftpFolder, pattern)
     else:
         try:

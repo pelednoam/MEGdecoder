@@ -64,13 +64,17 @@ def autolabel(rects, fontSize=24):
 
 
 # @tryCall
-def barGrouped2(x1, x2, x1std, x2std, labels=None, xtick=None, ylim=None,
+def barGrouped2(x1, x2, x1std=None, x2std=None, labels=None, xtick=None, ylim=None,
                 ylabel='', title='', figName='', doShow=True):
     if not labels:
         labels = ['', '']
     init()
-    locs = np.arange(1, 3)
+    locs = np.arange(1, len(x1) + 1)
     width = 0.33
+    if (x1std is None):
+        x1std = np.zeros((len(x1)))
+    if (x2std is None):
+        x2std = np.zeros((len(x2)))
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
     plt.bar(locs + width / 2, x1, width=width, yerr=x1std, ecolor='black', facecolor=cnames['darkcyan'],
@@ -78,7 +82,8 @@ def barGrouped2(x1, x2, x1std, x2std, labels=None, xtick=None, ylim=None,
     plt.bar(locs + width * 1.5, x2, width=width, yerr=x2std, ecolor='black', facecolor=cnames['darkkhaki'],
             label=labels[1])
     plt.xticks(locs + width * 1.5, locs)
-    ax.set_xticklabels(xtick)
+    if (xtick is not None):
+        ax.set_xticklabels(xtick)
     plt.legend(loc="upper right")
     plt.ylabel(ylabel)
     if (ylim):
@@ -94,19 +99,28 @@ def barGrouped2(x1, x2, x1std, x2std, labels=None, xtick=None, ylim=None,
 
 
 @tryCall
-def barPlot(x, yLabel='', xTickLabels='', ylim=None, xlim=None, labels=None, xLabelsFontSize=26, title='',
-            doPlotValues=False, errors=None, xrotate=0, startsWithZeroZero=False, fileName='', doShow=True):
-    if not ylim: ylim = []
-    if not xlim: xlim = []
-    if not labels: labels = ['', '', '']
-    if (errors is None): errors = []
+def barPlot(x, yLabel='', xTickLabels='', ylim=None, xlim=None, labels=None,
+            xLabelsFontSize=26, yFontSize=26, title='', titleFontSize=26,
+            doPlotValues=False, valuesFontSize=26, errors=None, xrotate=0,
+            startsWithZeroZero=False, fileName='',
+            doShow=True, fileType='jpg'):
+    x = np.array(x)
+    if not ylim:
+        ylim = []
+    if not xlim:
+        xlim = []
+    if not labels:
+        labels = ['', '', '']
     init()
     ind = range(len(x))
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
-    if (len(errors) == 0): errors = np.zeros((len(x)))
-    rects = ax.bar(ind, x, facecolor='#777777', align='center', ecolor='black', yerr=errors)
-    if (doPlotValues): autolabel(rects, 34)
+    if (errors is None):
+        errors = np.zeros((len(x)))
+    rects = ax.bar(ind, x, facecolor='#777777', align='center',
+                   ecolor='black', yerr=errors)
+    if (doPlotValues):
+        autolabel(rects, valuesFontSize)
     if (startsWithZeroZero):
         if (ylim):
             ylim[0] = 0
@@ -116,20 +130,23 @@ def barPlot(x, yLabel='', xTickLabels='', ylim=None, xlim=None, labels=None, xLa
             xlim[0] = -0.5
         else:
             xlim = [-0.5, len(x)]
-    if (ylim): plt.ylim(ylim)
-    if (xlim): plt.xlim(xlim)
+    if (ylim):
+        plt.ylim(ylim)
+    if (xlim):
+        plt.xlim(xlim)
     if (xTickLabels != ''):
-        plt.xticks(ind);
+        plt.xticks(ind)
         ax.set_xticklabels(xTickLabels, fontsize=xLabelsFontSize)
     # plt.setp(ax.get_xticklabels(), rotation='vertical', fontsize=xLabelsFontSize)
-    plt.ylabel(yLabel, fontsize=34)
-    if (xrotate): plt.xticks(rotation=xrotate)
+    plt.ylabel(yLabel, fontsize=yFontSize)
+    if (xrotate):
+        plt.xticks(rotation=xrotate)
     if (title != ''):
-        ax.set_title(title, fontsize=34)
+        ax.set_title(title, fontsize=titleFontSize)
     # fig.autofmt_xdate()
     # fig.autofmt_xdate()
     if (fileName != ''):
-        plt.savefig('%s.png' % fileName)
+        plt.savefig('{}.{}'.format(fileName, fileType))
     if (doShow):
         plt.show()
     plt.close()
@@ -185,7 +202,7 @@ def twoBarsPlot(x1, x2, xlabel, ylabel, xtick1, xtick2):
 
 # @tryCall
 def graph(x, y, title='', xlabel='', ylabel='', xlim=None, ylim=None,
-          fileName='', yerr=None, doShow=True):
+          fileName='', yerr=None, doShow=True, fileType='jpg'):
     if (xlim is None): xlim = []
     if (ylim is None): ylim = []
     if (yerr is None): yerr = []
@@ -200,11 +217,10 @@ def graph(x, y, title='', xlabel='', ylabel='', xlim=None, ylim=None,
     if (xlim): plt.xlim(xlim)
     if (ylim): plt.ylim(ylim)
     if (fileName != ''):
-        plt.savefig('%s.png' % fileName)
-        plt.close()
-    else:
-        if (doShow):
-            plt.show()
+        plt.savefig('{}.{}'.format(fileName, fileType))
+    if (doShow):
+        plt.show()
+    plt.close()
 
 
 # @tryCall

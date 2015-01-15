@@ -25,13 +25,12 @@ class AnalyzerSelector(Analyzer):
         ''' Step 3) Processing the data '''
         print('Proccessing the data. First load it')
         x, y, trialsInfo = self.getXY(self.STEP_PRE_PROCCESS, kwargs)
-        print(x.shape)
         verbose = kwargs.get('verbose', True)
         utils.log(utils.count(np.array(y)), verbose)
         utils.save(Bunch(foldsNum=kwargs['foldsNum']),
-                   self.predictionsParamtersFileName)  # T=T,
+            self.predictionsParamtersFileName)
         cv = self.featuresCV(y, trialsInfo, kwargs['foldsNum'],
-                             kwargs.get('testSize', None))
+            kwargs.get('testSize', None))
         utils.log('prepare CV params', verbose)
         params = self._prepareCVParams(utils.BunchDic(locals()))
         for p in params:
@@ -52,34 +51,49 @@ class AnalyzerSelector(Analyzer):
             if (not doCalc):
                 return resultsFileName
             x, ytrain, ytest, _, _ = self._preparePPInit(p)
+            if (not MLUtils.isBinaryProblem(p.y, p.trainIndex, p.testIndex)):
+                print('Only one label!')
+                continue
             print('{} out of {}'.format(p.index, p.paramsNum))
-            bestScore = Bunch(auc=0.5, gmean=0.5)
-            bestParams = Bunch(auc=None, gmean=None)
-            externalParams = Bunch(fold=p.fold)
-            for hp in self.parametersGenerator(p):
-                selector = self.selectorFactory(hp)
-                xtrainFeatures = selector.fit_transform(x, ytrain, p.trainIndex)
-                xtestFeatures = selector.transform(x, p.testIndex)
-                if (xtrainFeatures.shape[0] > 0 and xtestFeatures.shape[0] > 0):
-                    if (self.useSmote):
-                        xtrainFeaturesTimedBoost, ytrainBoost = \
-                            MLUtils.boostSmote(xtrainFeatures, ytrain)
+            externalParams, bestScore, bestParams = \
+                self.optimizeHyperParams(x, ytrain, ytest, p)
+            utils.save((externalParams, bestScore, bestParams),
+                resultsFileName)
+            utils.howMuchTimeFromTic(t)
+            print('finish {}, {}'.format(externalParams, bestScore))
+        return resultsFileNames
+
+    def optimizeHyperParams(self, x, ytrain, ytest, p):
+        bestScore = Bunch(auc=0.5, gmean=0.5)
+        bestParams = Bunch(auc=None, gmean=None)
+        externalParams = Bunch(fold=p.fold)
+        for hp in self.parametersGenerator(p):
+            selector = self.selectorFactory(hp)
+            xtrainFeatures = selector.fit_transform(x, ytrain, p.trainIndex)
+            xtestFeatures = selector.transform(x, p.testIndex)
+            if (xtrainFeatures.shape[0] > 0 and xtestFeatures.shape[0] > 0):
+                if (self.useSmote):
+                    xtrainFeaturesBoost, ytrainBoost = \
+                        MLUtils.boostSmote(xtrainFeatures, ytrain)
+                    if (self.shuffleLabels):
+                        ytrainBoost = ytrainBoost[p.shuffleIndices]
+                else:
+                    if (self.useUnderSampling):
+                        xtrainFeaturesBoost, ytrainBoost = \
+                            MLUtils.undersampling(xtrainFeatures, ytrain)
                         if (self.shuffleLabels):
-                            ytrainBoost = ytrainBoost[p.shuffleIndices]
+                            ytrainBoost = ytrainBoost[
+                                np.random.permutation(len(ytrainBoost))]
                     else:
-                        xtrainFeaturesTimedBoost, ytrainBoost = \
+                        xtrainFeaturesBoost, ytrainBoost = \
                             MLUtils.boost(xtrainFeatures, ytrain)
 
-                    self._predict(Bunch(ytest=ytest,
-                        xtrainFeatures=xtrainFeaturesTimedBoost,
-                        ytrain=ytrainBoost, xtestFeatures=xtestFeatures,
-                        kernels=p.kernels, Cs=p.Cs, gammas=p.gammas),
-                        bestScore, bestParams, hp)
-
-            utils.save((externalParams, bestScore, bestParams), resultsFileName)
-            howMuchTime = utils.howMuchTimeFromTic(t)
-            print('finish {}, {}'.format(externalParams, bestScore, howMuchTime))
-        return resultsFileNames
+                self._predict(Bunch(ytest=ytest,
+                    xtrainFeatures=xtrainFeaturesBoost,
+                    ytrain=ytrainBoost, xtestFeatures=xtestFeatures,
+                    kernels=p.kernels, Cs=p.Cs, gammas=p.gammas),
+                    bestScore, bestParams, hp)
+        return (externalParams, bestScore, bestParams)
 
     def checkExistingResultsFile(self, p):
         overwriteResultsFile = p.get('overwriteResultsFile', True)
@@ -119,14 +133,12 @@ class AnalyzerSelector(Analyzer):
             return x, y, trialsInfo, weights
 
     def selectorFactory(self, p, maxSurpriseVal=20, doPlotSections=False):
-        verbose = p.get('verbose', True)
-        utils.log('ss alpha: {}, ss len: {}'.format(
-            p.sigSectionAlpha, p.sigSectionMinLength), verbose)
         return TimeSelector(p.sigSectionAlpha, p.sigSectionMinLength,
             p.onlyMidValue, self.xAxis, maxSurpriseVal,
             self.LABELS[self.procID], doPlotSections)
 
     def permutateTheLabels(self, y, trainIndex, useSmote):
+        shuffy = y.copy()
         if (useSmote):
             # Create a shuffle indices. The length is twice the length
             # of the majority class trials number
@@ -137,9 +149,9 @@ class AnalyzerSelector(Analyzer):
             majority = max([cnt[0], cnt[1]])
             shuffleIndices = np.random.permutation(majority * 2)
         else:
-            shuffleIndices = np.random.permutation(len(y))
-            y = y[shuffleIndices]
-        return y, shuffleIndices
+            shuffleIndices = np.random.permutation(len(trainIndex))
+            shuffy[trainIndex] = shuffy[trainIndex][shuffleIndices]
+        return (shuffy, shuffleIndices)
 
     def scorerFoldsResultsItem(self, score, probsScore, rates, res,
                                predRes, auc, gmean):
@@ -528,13 +540,18 @@ class AnalyzerSelector(Analyzer):
     @property
     def allSectionsTrainFileName(self):
         return '{}_allSectionsTrain.pkl'.format(self.dataFileName(self.STEP_FEATURES)[:-4])
-    
+
     @property
     def selectorName(self):
         return 'FrequenciesSelector'
-    
+
     @property
-    def moreInfoForResultsFileName(self):
-        return ''
-        
+    def pssFileName(self):
+        fileName = '{}_pss.pkl'.format(self.defaultFilePrefix)
+        return fileName.replace('shuffled_', '')
+
+    @property
+    def freqsFileName(self):
+        fileName = '{}_freqs.pkl'.format(self.defaultFilePrefix)
+        return fileName.replace('shuffled_', '')
     

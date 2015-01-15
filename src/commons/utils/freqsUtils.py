@@ -73,14 +73,16 @@ def calcAndCutPS(X, freqs, timeStep, minFreq, maxFreq):
 def calcPSX(X, minFreq, maxFreq, timeStep, cvIndices=None,
               timeIndices=None, weights=None):
     C = su.calcSectionsNum(X, None, weights)
-    print('C: {}'.format(C))
+    # print('C: {}'.format(C))
     xc0 = su.calcSlice(X, 0, cvIndices, timeIndices, weights)
     freqs, idx1, idx2, maxLenInd = calcFreqs(xc0, timeStep, minFreq, maxFreq)
     maxFreqs = freqs[maxLenInd]
-    pss = np.empty((len(X), len(maxFreqs), C))
+    N = X.shape[0] if isinstance(X, np.ndarray) else len(X)
+    F = len(freqs) if freqs.ndim == 1 else len(maxFreqs)
+    pss = np.empty((N, F, C))
     pss.fill(np.nan)
     for c in range(C):
-        print(c, C)
+        # print(c, C)
         xc = su.calcSlice(X, c, cvIndices, timeIndices, weights)
         ps = calcPS(xc, idx1, idx2)
         if isinstance(ps, np.ndarray):
@@ -88,8 +90,8 @@ def calcPSX(X, minFreq, maxFreq, timeStep, cvIndices=None,
         else:
             for k in range(len(X)):
                 pss[k, :, c] = np.interp(maxFreqs, freqs[k], ps[k])
-    print(utils.noNone(pss))
-    print(pss.shape)
+    # print(utils.noNone(pss))
+    # print(pss.shape)
     return pss, maxFreqs
 
 
