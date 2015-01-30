@@ -12,11 +12,13 @@ from src.commons import scoreFunctions as sf
 from src.commons.utils import mpHelper
 from src.commons.utils import tablesUtils as tabu
 from src.commons.selectors.timeSelector import TimeSelector
+from src.commons.crossValidations import SubjectsLeaveOneOut, SubjectsKFold
 
 import os
 import numpy as np
 from sklearn.datasets.base import Bunch
 from abc import abstractmethod
+import itertools
 
 
 class AnalyzerSelector(Analyzer):
@@ -24,13 +26,22 @@ class AnalyzerSelector(Analyzer):
     def process(self, **kwargs):
         ''' Step 3) Processing the data '''
         print('Proccessing the data. First load it')
+        if (tabu.DEF_TABLES):
+            self.hdfFile = tabu.openHDF5File(self.hdf5FileName, 'r')
+            self.hdfGroup = tabu.findOrCreateGroup(self.hdfFile, self.defaultGroup)
+        else:
+            self.hdfFile, self.hdfGroup = None, None
         x, y, trialsInfo = self.getXY(self.STEP_PRE_PROCCESS, kwargs)
         verbose = kwargs.get('verbose', True)
         utils.log(utils.count(np.array(y)), verbose)
         utils.save(Bunch(foldsNum=kwargs['foldsNum']),
             self.predictionsParamtersFileName)
-        cv = self.featuresCV(y, trialsInfo, kwargs['foldsNum'],
-            kwargs.get('testSize', None))
+        if (self.leaveOneSubjectOutFolds):
+            subjects = self.getSubjects(trialsInfo)
+            cv = SubjectsLeaveOneOut(subjects)
+        else:
+            cv = self.featuresCV(y, trialsInfo, kwargs['foldsNum'],
+                kwargs.get('testSize', None))
         utils.log('prepare CV params', verbose)
         params = self._prepareCVParams(utils.BunchDic(locals()))
         for p in params:
@@ -50,50 +61,96 @@ class AnalyzerSelector(Analyzer):
             resultsFileName, doCalc = self.checkExistingResultsFile(p)
             if (not doCalc):
                 return resultsFileName
-            x, ytrain, ytest, _, _ = self._preparePPInit(p)
-            if (not MLUtils.isBinaryProblem(p.y, p.trainIndex, p.testIndex)):
+            x, y, _, _ = self._preparePPInit(p)
+            ytrain, ytest = y[p.trainIndex], y[p.testIndex]
+            externalParams = self.externalParams(p)
+            if (not MLUtils.isBinaryProblem(y, p.trainIndex, p.testIndex)):
                 print('Only one label!')
                 continue
             print('{} out of {}'.format(p.index, p.paramsNum))
-            externalParams, bestScore, bestParams = \
-                self.optimizeHyperParams(x, ytrain, ytest, p)
-            utils.save((externalParams, bestScore, bestParams),
+            if (self.doInnerCV):
+                # Calc cv over the train data
+                if (self.leaveOneSubjectOutFolds):
+                    # get all the subjects except the current one (p.subject)
+                    subjects = self.getSubjects(p.trialsInfo, [p.subject])
+                    innerCV = SubjectsKFold(subjects, p.foldsNum)
+                else:
+                    innerCV = self.trainCV(ytrain, p.trialsInfo, p.foldsNum,
+                        p.testSize)
+                externalParams.bestInnerScores, bestParams = \
+                    self.calcParamsForCV(x, y, innerCV, p)
+                allScores = Bunch(auc=[], gmean=[])
+                bestScore = Bunch(auc=0., gmean=0.)
+                for acc in ['auc', 'gmean']:
+                    for innerParams in bestParams[acc]:
+                        selector = self.selectorFactory(innerParams)
+                        xtrainFeatures = selector.fit_transform(x, ytrain, p.trainIndex, p.windowIndices)
+                        xtestFeatures = selector.transform(x, p.testIndex)
+                        xtrainFeaturesBoost, ytrainBoost = self._boost(xtrainFeatures,
+                            ytrain, p.shuffleIndices)
+                        score = self._predict(xtrainFeaturesBoost,
+                            xtestFeatures, ytrainBoost, ytest, innerParams.predHP)
+                        allScores[acc].append(score[acc])
+                        innerParams.rates = score.rates
+                    bestScore[acc] = np.mean(allScores[acc])
+            else:
+                # Beware of over fitting!!!
+                allScores = Bunch(auc=[], gmean=[])
+                bestScore, bestParams = \
+                    self.optimizeHyperParams(x, ytrain, ytest, p.trainIndex,
+                    p.testIndex, p)
+                for acc in ['auc', 'gmean']:
+                    allScores[acc].append(bestScore[acc])
+
+            utils.save((externalParams, allScores, bestParams),
                 resultsFileName)
             utils.howMuchTimeFromTic(t)
             print('finish {}, {}'.format(externalParams, bestScore))
         return resultsFileNames
 
-    def optimizeHyperParams(self, x, ytrain, ytest, p):
-        bestScore = Bunch(auc=0.5, gmean=0.5)
+    def getSubjects(self, trialsInfo, exclude=()):
+        return [trialInfo[self.normalizeDataField] for trialInfo in \
+            trialsInfo if trialInfo[self.normalizeDataField] not in exclude]
+
+    def calcParamsForCV(self, x, y, cv, p):
+        cvScores = Bunch(auc=[], gmean=[])
+        cvParams = Bunch(auc=[], gmean=[])
+        cv = list(cv)
+        for fold, (trainIndex, testIndex) in enumerate(cv):
+            print('subject {} inner cv {} out of {}'.format(p.subject, fold, len(cv)))
+            innerTrainIndex = p.trainIndex[trainIndex]
+            innerTestIndex = p.trainIndex[testIndex]
+            score, params = self.optimizeHyperParams(x, y,
+                innerTrainIndex, innerTestIndex, p)
+            for acc in ['auc', 'gmean']:
+                cvScores[acc].append(score[acc])
+                cvParams[acc].append(params[acc])
+        return cvScores, cvParams
+
+    def optimizeHyperParams(self, x, y, trainIndex, testIndex, p):
+        bestScore = Bunch(auc=0., gmean=0.)
         bestParams = Bunch(auc=None, gmean=None)
-        externalParams = Bunch(fold=p.fold)
+        ytrain, ytest = y[trainIndex], y[testIndex]
         for hp in self.parametersGenerator(p):
             selector = self.selectorFactory(hp)
-            xtrainFeatures = selector.fit_transform(x, ytrain, p.trainIndex)
-            xtestFeatures = selector.transform(x, p.testIndex)
+            xtrainFeatures = selector.fit_transform(x, ytrain, trainIndex, p.windowIndices)
+            xtestFeatures = selector.transform(x, testIndex)
             if (xtrainFeatures.shape[0] > 0 and xtestFeatures.shape[0] > 0):
-                if (self.useSmote):
-                    xtrainFeaturesBoost, ytrainBoost = \
-                        MLUtils.boostSmote(xtrainFeatures, ytrain)
-                    if (self.shuffleLabels):
-                        ytrainBoost = ytrainBoost[p.shuffleIndices]
-                else:
-                    if (self.useUnderSampling):
-                        xtrainFeaturesBoost, ytrainBoost = \
-                            MLUtils.undersampling(xtrainFeatures, ytrain)
-                        if (self.shuffleLabels):
-                            ytrainBoost = ytrainBoost[
-                                np.random.permutation(len(ytrainBoost))]
-                    else:
-                        xtrainFeaturesBoost, ytrainBoost = \
-                            MLUtils.boost(xtrainFeatures, ytrain)
-
-                self._predict(Bunch(ytest=ytest,
-                    xtrainFeatures=xtrainFeaturesBoost,
-                    ytrain=ytrainBoost, xtestFeatures=xtestFeatures,
-                    kernels=p.kernels, Cs=p.Cs, gammas=p.gammas),
-                    bestScore, bestParams, hp)
-        return (externalParams, bestScore, bestParams)
+                xtrainFeaturesBoost, ytrainBoost = self._boost(xtrainFeatures,
+                    ytrain, p.shuffleIndices)
+                for kernel, C, gamma in itertools.product(*(
+                        p.kernels, p.Cs, p.gammas)):
+                    predHP = Bunch(kernel=kernel, C=C, gamma=gamma)
+                    score = self._predict(xtrainFeaturesBoost,
+                        xtestFeatures, ytrainBoost, ytest, predHP)
+                    # Don't let results with rates=(0,1) gets in
+                    for acc in ['auc', 'gmean']:
+                        if (score > bestScore[acc] and score['gmean'] > 0):
+                            bestScore[acc] = score[acc]
+                            bestParams[acc] = hp
+                            bestParams[acc].predHP = predHP
+                            bestParams[acc].rates = score.rates
+        return (bestScore, bestParams)
 
     def checkExistingResultsFile(self, p):
         overwriteResultsFile = p.get('overwriteResultsFile', True)
@@ -106,31 +163,26 @@ class AnalyzerSelector(Analyzer):
         else:
             return resultsFileName, True
 
-    def _preparePPInit(self, p, getX=True, getWeights=False, doCV=True):
+    def _preparePPInit(self, p, getX=True, getWeights=False, getTrialsInfo=False):
         x, weights, trialsInfo = None, None, None
         if (tabu.DEF_TABLES):
-            groupName = self.defaultGroup
             if (getX):
-                x = tabu.findTable(self.hdfFile, 'x', groupName)
+                x = tabu.findTableInGroup(self.hdfGroup, self.xTableName)
             # Add code to deal with the shuffling
-            y = tabu.findTable(self.hdfFile, 'y', groupName)
+            y = tabu.findTableInGroup(self.hdfGroup, 'y')
             if (getWeights):
-                weights = tabu.findTable(self.hdfFile, 'weights', groupName)
-            trialsInfo = tabu.findTable(self.hdfFile, 'trialsInfo', groupName)
+                weights = tabu.findTableInGroup(self.hdfGroup, 'weights')
+            if (getTrialsInfo):
+                trialsInfo = tabu.findTableInGroup(self.hdfGroup, 'trialsInfo')
         else:
             if (getX):
                 x = p.x.value
             y = p.y
-            if ('trialsInfo' in p):
+            if ('trialsInfo' in p and getTrialsInfo):
                 trialsInfo = p.trialsInfo
             if (getWeights):
                 weights = p.get('weights', None)
-        if (doCV):
-            ytrain = y[p.trainIndex]
-            ytest = y[p.testIndex]
-            return x, ytrain, ytest, trialsInfo, weights
-        else:
-            return x, y, trialsInfo, weights
+        return x, y, trialsInfo, weights
 
     def selectorFactory(self, p, maxSurpriseVal=20, doPlotSections=False):
         return TimeSelector(p.sigSectionAlpha, p.sigSectionMinLength,
@@ -530,6 +582,10 @@ class AnalyzerSelector(Analyzer):
         return self.STEPS[self.STEP_PRE_PROCCESS]
 
     @property
+    def xTableName(self):
+        return 'x'
+
+    @property
     def sensorsImportanceTrainFileName(self):
         return '{}_sensorsImportanceTrain.pkl'.format(self.dataFileName(self.STEP_FEATURES)[:-4])
 
@@ -554,4 +610,3 @@ class AnalyzerSelector(Analyzer):
     def freqsFileName(self):
         fileName = '{}_freqs.pkl'.format(self.defaultFilePrefix)
         return fileName.replace('shuffled_', '')
-    

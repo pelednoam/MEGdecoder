@@ -9,11 +9,9 @@ import scipy.fftpack
 
 from src.commons.utils import plots
 from src.commons.utils import MLUtils
-from src.commons.utils import utils
+from src.commons.utils import tablesUtils as tabu
 import sectionsUtils as su
 from __builtin__ import Exception
-
-# import seaborn as sns
 
 
 def calcFreqs(X, timeStep, minFreq=0, maxFreq=np.inf):
@@ -21,7 +19,7 @@ def calcFreqs(X, timeStep, minFreq=0, maxFreq=np.inf):
         freqs = scipy.fftpack.fftfreq(X.shape[1], timeStep)
         idx1 = np.argsort(freqs)
         freqs = freqs[idx1]
-        idx2 = np.where((freqs > minFreq) & (freqs < maxFreq))[0]
+        idx2 = np.where((freqs >= minFreq) & (freqs <= maxFreq))[0]
         freqs = freqs[idx2]
         return freqs, idx1, idx2, 0
     else:
@@ -29,7 +27,7 @@ def calcFreqs(X, timeStep, minFreq=0, maxFreq=np.inf):
         allFreqs, lengths = [], []
         idx1s, idx2s = [], []
         if (isinstance(timeStep, float)):
-            timeStep = np.ones((len(X)))
+            timeStep = np.ones((len(X))) * timeStep
         for x, dt in zip(X, timeStep):
             freqs = scipy.fftpack.fftfreq(x.shape[0], dt)
             idx1 = np.argsort(freqs)
@@ -70,19 +68,31 @@ def calcAndCutPS(X, freqs, timeStep, minFreq, maxFreq):
         return freqss, pss
 
 
-def calcPSX(X, minFreq, maxFreq, timeStep, cvIndices=None,
+def calcMaxFreqs(X, minFreq, maxFreq, timeStep, cvIndices=None,
               timeIndices=None, weights=None):
+    xc0 = su.calcSlice(X, 0, cvIndices, timeIndices, weights)
+    freqs, _, _, maxLenInd = calcFreqs(xc0, timeStep, minFreq, maxFreq)
+    maxFreqs = freqs[maxLenInd]
+    return maxFreqs
+
+
+def calcPSX(X, minFreq, maxFreq, timeStep, cvIndices=None,
+              timeIndices=None, weights=None, hdfFile=None, hdfGroup=None):
     C = su.calcSectionsNum(X, None, weights)
-    # print('C: {}'.format(C))
     xc0 = su.calcSlice(X, 0, cvIndices, timeIndices, weights)
     freqs, idx1, idx2, maxLenInd = calcFreqs(xc0, timeStep, minFreq, maxFreq)
     maxFreqs = freqs[maxLenInd]
     N = X.shape[0] if isinstance(X, np.ndarray) else len(X)
-    F = len(freqs) if freqs.ndim == 1 else len(maxFreqs)
-    pss = np.empty((N, F, C))
-    pss.fill(np.nan)
+    F = len(freqs) if isinstance(freqs[0], float) else len(maxFreqs)
+    pssShape = (N, F, C)
+    print('pss matrix is {}x{}x{}'.format(N, F, C))
+    if hdfFile is None:
+        pss = np.empty(pssShape)
+        pss.fill(np.nan)
+    else:
+        pss = tabu.createHDF5ArrTable(hdfFile, hdfGroup, 'pss', shape=pssShape)
     for c in range(C):
-        # print(c, C)
+        print('channel {} out of {}'.format(c, C))
         xc = su.calcSlice(X, c, cvIndices, timeIndices, weights)
         ps = calcPS(xc, idx1, idx2)
         if isinstance(ps, np.ndarray):

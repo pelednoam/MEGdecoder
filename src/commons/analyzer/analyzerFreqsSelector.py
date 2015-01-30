@@ -6,7 +6,7 @@ Created on Jun 1, 2014
 
 from src.commons.analyzer.analyzer import Analyzer
 from src.commons.analyzer.analyzerSelector import AnalyzerSelector
-from src.commons.utils import mpHelper, MLUtils, utils, freqsUtils as fu
+from src.commons.utils import (mpHelper, MLUtils, utils, freqsUtils as fu, tablesUtils as tabu)
 from collections import namedtuple
 import itertools
 import os
@@ -19,20 +19,61 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
         if (stepID != self.STEP_PRE_PROCCESS):
             return super(AnalyzerFreqsSelector, self).getXY(stepID)
         else:
-            if (utils.fileExists(self.pssFileName)):
+            minFreq, maxFreq = min(p['minFreqs']), max(p['maxFreqs'])
+            if (tabu.DEF_TABLES and tabu.isTableInGroup(self.hdfGroup, self.xTableName)):
+                pss = tabu.findTableInGroup(self.hdfGroup, self.xTableName)
+                print('pss matrix exists in the hdf file ({})'.format(pss.shape))
+                y = tabu.findTableInGroup(self.hdfGroup, 'y')
+                trialsInfo = tabu.findTableInGroup(self.hdfGroup, 'trialsInfo')
+                if (not utils.fileExists(self.freqsFileName)):
+                    timeStep = self.calcTimeStep(trialsInfo)
+                    x, y, trialsInfo = super(AnalyzerFreqsSelector,
+                        self).getXY(stepID)
+                    freqs = fu.calcMaxFreqs(x, minFreq, maxFreq, timeStep)
+                    utils.save(freqs, self.freqsFileName)
+                else:
+                    freqs = utils.load(self.freqsFileName)
+            elif (utils.fileExists(self.pssFileName)):
                 print('loading {}'.format(self.pssFileName))
                 pss, y, trialsInfo = utils.load(self.pssFileName)
-                self.xAxis = utils.load(self.freqsFileName)
+                freqs = utils.load(self.freqsFileName)
             else:
                 x, y, trialsInfo = super(AnalyzerFreqsSelector,
                     self).getXY(stepID)
                 timeStep = self.calcTimeStep(trialsInfo)
-                pss, freqs = fu.calcPSX(x, min(p['minFreqs']),
-                    max(p['maxFreqs']), timeStep)
+                pss, freqs = fu.calcPSX(x, minFreq, maxFreq, timeStep,
+                    hdfFile=self.hdfFile, hdfGroup=self.hdfGroup)
+                if (self.normalizeData):
+                    print('normalize pss')
+                    pss = self.normalizeFeatures(pss, trialsInfo, self.normalizeDataField)
                 print('save pss and freqs')
-                utils.save((pss, y, trialsInfo), self.pssFileName)
+                if (not tabu.DEF_TABLES):
+                    utils.save((pss, y, trialsInfo), self.pssFileName)
+                else:
+                    # If the trials have different lengths (self.variesT), the
+                    # raw data is saved in analyzer.preProcess in a npz file,
+                    # not hdf. So now, when tabu.DEF_TABLES set to True, the
+                    # pss can be saved in an hdf file, so we need also to save
+                    # y and trialsInfo in the same hdf file.
+                    if (not tabu.isTableInGroup(self.hdfGroup, 'y')):
+                        tabu.createHDF5ArrTable(self.hdfFile, self.hdfGroup,
+                            'y', arr=y)
+                        trialsInfoTab = tabu.createHDFTable(self.hdfFile,
+                            self.hdfGroup, 'trialsInfo', self.trialsInfoDesc)
+                        self.createEmptyTrialInfoTable(trialsInfoTab, len(y))
+                        for k, trialInfo in enumerate(trialsInfo):
+                            self.setTrialInfoRecord(trialsInfoTab, k, trialInfo)
+                    # Close and open in read mode, from here we don't need 
+                    # to do any changes in the hdf file
+                    self.hdfFile.close()
+                    self.hdfFile = tabu.openHDF5File(self.hdf5FileName, 'r')
+                    pss = tabu.findTableInGroup(self.hdfGroup, self.xTableName)
+                    y = tabu.findTableInGroup(self.hdfGroup, 'y')
+                    trialsInfo = tabu.findTableInGroup(self.hdfGroup, 'trialsInfo')
+
                 utils.save(freqs, self.freqsFileName)
-                self.xAxis = freqs
+
+            self.xAxis = freqs
             return pss, y, trialsInfo
 
     def _prepareCVParams(self, p):
@@ -41,14 +82,17 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
         cv = list(p.cv)
         paramsNum = len(cv)
         index = 0
+        x = mpHelper.ForkedData(p.x) if not tabu.DEF_TABLES else None
         for fold, (trainIndex, testIndex) in enumerate(cv):
             if (not MLUtils.isBinaryProblem(p.y, trainIndex, testIndex)):
                 print('fold {} is not binary, continue'.format(fold))
                 continue
             y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
-                self.useSmote) if self.shuffleLabels else (p.y, None)
+                self.useSmote) if self.shuffleLabels else (p.y[:], None)
+            subject = p.cv.usubjects[fold] if self.leaveOneSubjectOutFolds \
+                else fold
             params.append(Bunch(
-                x=mpHelper.ForkedData(p.x), y=y,
+                x=x, y=y, subject=subject, windowIndices=range(len(self.freqs)),
                 trainIndex=trainIndex, testIndex=testIndex,
                 fold=fold, paramsNum=paramsNum,
                 sigSectionMinLengths=p.sigSectionMinLengths,
@@ -56,10 +100,15 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
                 maxFreqs=p.maxFreqs, index=index,
                 onlyMidValueOptions=p.onlyMidValueOptions,
                 kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
-                shuffleIndices=shuffleIndices))
+                shuffleIndices=shuffleIndices,
+                foldsNum=p.foldsNum, testSize=p.testSize,
+                trialsInfo=p.trialsInfo[:]))
             index += 1
         print('{} records!'.format(index))
         return params
+
+    def externalParams(self, p):
+        return Bunch(fold=p.fold, subject=p.subject)
 
     def parametersGenerator(self, p):
         for hp in itertools.product(*(p.minFreqs, p.maxFreqs,
@@ -132,3 +181,8 @@ class AnalyzerFreqsSelector(AnalyzerSelector):
     @property
     def selectorName(self):
         return 'FrequenciesSelector'
+
+    @property
+    def xTableName(self):
+        return 'pss'
+

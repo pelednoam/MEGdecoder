@@ -37,6 +37,7 @@ class TimeSelector():
         return sectionsUtils.concatenateFeaturesFromSections(
             X, self.sections, self.onlyMidValue, cvIndices)
 
-    def fit_transform(self, X, y, cvIndices=None, timeIndices=None, weights=None):
+    def fit_transform(self, X, y, cvIndices=None, timeIndices=None,
+                      weights=None):
         self.fit(X, y, cvIndices, timeIndices)
         return self.transform(X, cvIndices)

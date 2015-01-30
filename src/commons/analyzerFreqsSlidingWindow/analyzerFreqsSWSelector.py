@@ -5,6 +5,7 @@ Created on Dec 11, 2014
 '''
 from src.commons.analyzerTimeSlidingWindow.analyzerTimeSWFreqsSelector import \
     AnalyzerTimeSWFreqsSelector
+from src.commons.analyzer.analyzerFreqsSelector import AnalyzerFreqsSelector
 from src.commons.sliders.freqsSlider import \
     FreqsWindowSlider
 from src.commons.utils import MLUtils
@@ -23,7 +24,7 @@ import itertools
 import random
 
 
-class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
+class AnalyzerFreqsSWSelector(AnalyzerFreqsSelector):
 
     def _prepareCVParams(self, p):
         p = p.merge(p.kwargs)
@@ -32,28 +33,26 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
             p.minFreqs, p.maxFreqs, p.windowSizes, p.windowsNums)))
         totalWindowsNum = sum([wn for (_, wn, _, _) in windowsGenerator])
         index = 0
-        T = p.x.shape[1]
-        print('T is {}'.format(T))
-        timeStep = self.calcTimeStep(T)
         cv = list(p.cv)
         paramsNum = len(cv) * totalWindowsNum
-        pss, freqs = su.calcPS(p.x, min(p.minFreqs), max(p.maxFreqs),
-            timeStep)
-        for fold, (trainIndex, testIndex) in enumerate(cv):
-            pssTrain = pss[:, trainIndex, :]
-            pssTest = pss[:, testIndex, :]
-            y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
-                self.useSmote) if self.shuffleLabels else (p.y, None)
-            for minFreq, maxFreq, windowSize, windowsNum in windowsGenerator:
-                freqsSlider = FreqsWindowSlider(minFreq, maxFreq,
-                    windowSize, windowsNum)
-                for windowMinFreq, windowMaxFreq in \
-                        freqsSlider.windowsGenerator():
+        self.freqs = utils.load(self.freqsFileName)
+        for minFreq, maxFreq, windowSize, windowsNum in windowsGenerator:
+            freqsSlider = FreqsWindowSlider(self.freqs,  minFreq, maxFreq,
+                windowSize, windowsNum)
+            for windowMinFreq, windowMaxFreq, freqsIndices in \
+                    freqsSlider.windowsGenerator():
+                x = mpHelper.ForkedData(p.x[:, freqsIndices, :]) if not tabu.DEF_TABLES else None
+                for fold, (trainIndex, testIndex) in enumerate(cv):
+                    y, shuffleIndices = self.permutateTheLabels(p.y, trainIndex,
+                        self.useSmote) if self.shuffleLabels else (p.y[:], None)
+                    subject = p.cv.usubjects[fold] if self.leaveOneSubjectOutFolds \
+                        else fold
                     params.append(Bunch(
-                        y=y, trainIndex=trainIndex, testIndex=testIndex,
-                        fold=fold, paramsNum=paramsNum,
-                        pssTrain=mpHelper.ForkedData(pssTrain),
-                        pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
+                        x=x, y=y, subject=subject,
+                        trainIndex=trainIndex, testIndex=testIndex,
+                        fold=fold, paramsNum=paramsNum, windowIndices=freqsIndices,
+                        # pssTrain=mpHelper.ForkedData(pssTrain),
+                        # pssTest=mpHelper.ForkedData(pssTest), freqs=freqs,
                         windowSize=windowSize, windowsNum=windowsNum,
                         minFreq=windowMinFreq, maxFreq=windowMaxFreq,
                         sigSectionMinLengths=p.sigSectionMinLengths,
@@ -61,48 +60,52 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
                         onlyMidValueOptions=p.onlyMidValueOptions,
                         windowSizes=p.windowSizes, windowsNums=p.windowsNums,
                         kernels=p.kernels, Cs=p.Cs, gammas=p.gammas,
-                        shuffleIndices=shuffleIndices))
+                        shuffleIndices=shuffleIndices,
+                        foldsNum=p.foldsNum, testSize=p.testSize,
+                        trialsInfo=p.trialsInfo[:]))
                     index += 1
         return params
 
-    def _preparePredictionsParameters(self, ps):
-        resultsFileNames = []
-        for p in ps:
-            t = utils.ticToc()
-            resultsFileName, doCalc = self.checkExistingResultsFile(p)
-            resultsFileNames.append(resultsFileName)
-            if (not doCalc):
-                return resultsFileName
-            print('{} out of {}'.format(p.index, p.paramsNum))
-            _, ytrain, ytest, _, _ = self._preparePPInit(p, getX=False)
-            pssTrain = p.pssTrain.value
-            pssTest = p.pssTest.value
-            bestScore = Bunch(auc=0.5, gmean=0.5)
-            bestParams = Bunch(auc=None, gmean=None)
-            externalParams = Bunch(fold=p.fold, windowSize=p.windowSize,
-                windowsNum=p.windowsNum, minFreq=p.minFreq)
-            for hp in self.parametersGenerator(p):
-                selector = self.selectorFactory(None, hp)
-                xtrainFeatures = selector.fit_transform(
-                    None, ytrain, p.trainIndex,
-                    preCalcPSS=pssTrain, preCalcFreqs=p.freqs)
-                xtestFeatures = selector.transform(None, p.testIndex,
-                    preCalcPSS=pssTest, preCalcFreqs=p.freqs)
-                if (xtrainFeatures.shape[0] > 0 and
-                        xtestFeatures.shape[0] > 0):
-                    xtrainFeaturesBoost, ytrainBoost = MLUtils.boost(
-                        xtrainFeatures, ytrain)
-                    self._predict(Bunch(
-                        xtrainFeatures=xtrainFeaturesBoost,
-                        xtestFeatures=xtestFeatures,
-                        ytrain=ytrainBoost, ytest=ytest,
-                        kernels=p.kernels, Cs=p.Cs, gammas=p.gammas),
-                        bestScore, bestParams, hp)
+    def externalParams(self, p):
+        return Bunch(fold=p.fold, subject=p.subject,
+            windowSize=p.windowSize, windowsNum=p.windowsNum,
+            minFreq=p.minFreq, maxFreq=p.maxFreq)
 
-            utils.save((externalParams, bestScore, bestParams), resultsFileName)
-            howMuchTime = utils.howMuchTimeFromTic(t)
-            print('finish {}, {}'.format(externalParams, bestScore, howMuchTime))
-        return resultsFileNames
+    # def _preparePredictionsParameters(self, ps):
+    #     resultsFileNames = []
+    #     for p in ps:
+    #         t = utils.ticToc()
+    #         resultsFileName, doCalc = self.checkExistingResultsFile(p)
+    #         resultsFileNames.append(resultsFileName)
+    #         if (not doCalc):
+    #             return resultsFileName
+    #         print('{} out of {}'.format(p.index, p.paramsNum))
+    #         x, y, _, _ = self._preparePPInit(p)
+    #         ytrain, ytest = y[p.trainIndex], y[p.testIndex]
+    #         bestScore = Bunch(auc=0.5, gmean=0.5)
+    #         bestParams = Bunch(auc=None, gmean=None)
+    #         externalParams = Bunch(fold=p.fold, windowSize=p.windowSize,
+    #             windowsNum=p.windowsNum, minFreq=p.minFreq)
+    #         for hp in self.parametersGenerator(p):
+    #             selector = self.selectorFactory(None, hp)
+    #             xtrainFeatures = selector.fit_transform(
+    #                 x, ytrain, p.trainIndex)
+    #             xtestFeatures = selector.transform(x, p.testIndex)
+    #             if (xtrainFeatures.shape[0] > 0 and
+    #                     xtestFeatures.shape[0] > 0):
+    #                 xtrainFeaturesBoost, ytrainBoost = MLUtils.boost(
+    #                     xtrainFeatures, ytrain)
+    #                 self._predict(Bunch(
+    #                     xtrainFeatures=xtrainFeaturesBoost,
+    #                     xtestFeatures=xtestFeatures,
+    #                     ytrain=ytrainBoost, ytest=ytest,
+    #                     kernels=p.kernels, Cs=p.Cs, gammas=p.gammas),
+    #                     bestScore, bestParams, hp)
+    #
+    #         utils.save((externalParams, bestScore, bestParams), resultsFileName)
+    #         howMuchTime = utils.howMuchTimeFromTic(t)
+    #         print('finish {}, {}'.format(externalParams, bestScore, howMuchTime))
+    #     return resultsFileNames
 
     def parametersGenerator(self, p):
         for hp in itertools.product(*([p.minFreq], [p.maxFreq],
@@ -110,12 +113,12 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
                 p.sigSectionAlphas)):
             yield self.createParamsObj(hp)
 
-    def createParamsObj(self, paramsTuple):
-        (minFreq, maxFreq, onlyMidValue, sigSectionMinLength,
-            sigSectionAlpha) = paramsTuple
-        return Bunch(minFreq=minFreq, maxFreq=maxFreq,
-            onlyMidValue=onlyMidValue, sigSectionMinLength=sigSectionMinLength,
-            sigSectionAlpha=sigSectionAlpha)
+    # def createParamsObj(self, paramsTuple):
+    #     (minFreq, maxFreq, onlyMidValue, sigSectionMinLength,
+    #         sigSectionAlpha) = paramsTuple
+    #     return Bunch(minFreq=minFreq, maxFreq=maxFreq,
+    #         onlyMidValue=onlyMidValue, sigSectionMinLength=sigSectionMinLength,
+    #         sigSectionAlpha=sigSectionAlpha)
 
     def resultsKeys(self, p):
         return p.windowSize, p.minFreq
@@ -284,3 +287,4 @@ class AnalyzerFreqsSWSelector(AnalyzerTimeSWFreqsSelector):
     @property
     def selectorName(self):
         return 'FreqsSWSelector'
+

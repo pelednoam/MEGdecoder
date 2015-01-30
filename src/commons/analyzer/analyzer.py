@@ -1,4 +1,4 @@
-    # -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
 '''
 Created on Nov 25, 2013
 
@@ -13,10 +13,8 @@ from sklearn import feature_selection
 from sklearn.cross_validation import StratifiedShuffleSplit
 from sklearn.datasets.base import Bunch
 
-import itertools
 from collections import namedtuple
 import operator
-import traceback
 from collections import defaultdict
 
 from src.commons.utils import utils
@@ -51,7 +49,8 @@ class Analyzer(object):
             doLoadOriginalTimeAxis=True, variesT=False,
             matlabFileWithArtifacts='', shuffleLabels=None,
             leaveOneSubjectOutFolds=False, useUnderSampling=False,
-            useSmote=False, jobsNum=1):
+            useSmote=False, doInnerCV=True, normalizeData=False,
+            normalizeDataField='subject', jobsNum=1):
         self.folder = folder
         self.matlabFile = matlabFile
         self.subject = subject
@@ -73,28 +72,28 @@ class Analyzer(object):
         self.variesT = variesT
         self.useUnderSampling = useUnderSampling
         self.leaveOneSubjectOutFolds = leaveOneSubjectOutFolds
+        self.doInnerCV = doInnerCV
+        self.normalizeData = normalizeData
+        self.normalizeDataField = normalizeDataField
         if (plotForPublication):
             plots.init()
         self.loadOriginalTimeAxis()
-        if (tabu.DEF_TABLES):
-            self.hdfFile = tabu.openHDF5File(self.hdf5FileName)
-            self.hdfGroup = tabu.findOrCreateGroup(self.hdfFile,
-                self.STEPS[self.STEP_PRE_PROCCESS])
         if (utils.sftp is not None):
             utils.sftp.remoteTempFolder = os.path.join(utils.sftp.remoteFolder,
                 'temp', self.subject)
         print('init analyzer for {}'.format(self.subject))
 
-    def preProcess(self, checkExistingFile=False, parallel=False,
+    def preProcess(self, overwriteExistingFile=True, parallel=False,
         verbose=False):
         ''' Step 1) Load the data '''
         print('Preproceesing the data')
-        if (utils.fileExists(self.dataFileName(self.STEP_PRE_PROCCESS)) and \
-            checkExistingFile):
-            print('{} exists, overwrite? (y/n)'.format(self.dataFileName))
-            userAnswer = raw_input()
-            if (userAnswer == 'n'):
+        if (utils.fileExists(self.dataFileName(self.STEP_PRE_PROCCESS)) and
+            not overwriteExistingFile):
                 return None
+            # print('{} exists, overwrite? (y/n)'.format(self.dataFileName))
+            # userAnswer = raw_input()
+            # if (userAnswer == 'n'):
+            #     return None
 
         matlabDic = self.loadData()
         if (self.multipleByWeights):
@@ -156,7 +155,7 @@ class Analyzer(object):
         recordNum = 0
         dataGenerator = self.dataGenerator(matlabDic)
         for recordFlag, ((trial, label), trialInfo) in \
-                                zip(recordsFlags, dataGenerator):
+                zip(recordsFlags, dataGenerator):
             if (recordFlag):
                 if (weights is not None):
                     trial = np.dot(trial, weights)
@@ -278,14 +277,15 @@ class Analyzer(object):
 
         print('calculate prediction scores')
         for fileName in self.predictorResultsGenerator(getRemoteFiles):
-            externalParams, bestScore, bestParams = utils.load(fileName)
+            externalParams, allScores, bestParams = utils.load(fileName)
+            bestScore = Bunch(auc=max(allScores.auc), gmean=max(allScores.gmean))
             if not self.leaveOneSubjectOutFolds:
                 results['gmean']['scores'].append(bestScore.gmean)
                 results['gmean']['params'].append(bestParams.gmean)
                 results['auc']['scores'].append(bestScore.auc)
                 results['auc']['params'].append(bestParams.auc)
             else:
-                key = externalParams.fold
+                key = externalParams.subject
                 if key not in results:
                     results['gmean'][key] = {'scores': [], 'params': []}
                     results['auc'][key] = {'scores': [], 'params': []}
@@ -304,7 +304,7 @@ class Analyzer(object):
                 for subject in results[acc].keys():
                     scores = results[acc][subject]['scores']
                     allSubjects.extend(scores)
-                    print('{}: {}: {} results: {}'.format(acc, subject,
+                    print('{} {}: {}: {} results: {}'.format(subject, acc, subject,
                         len(scores), np.mean(scores)))
                 print('All subjects ({}): {}+-{}'.format(len(allSubjects), np.mean(allSubjects),
                     np.std(allSubjects)))
@@ -424,34 +424,37 @@ class Analyzer(object):
         utils.save(results, resultsFileName)
         return resultsFileName
 
-    def _predict(self, p, bs, bp, hp, verbose=False):
-        for kernel, C, gamma in itertools.product(*(p.kernels, p.Cs, p.gammas)):
-            try:
-                svc = GSS.TSVC(C=C, kernel=kernel, gamma=gamma)
-                svc.fit(p.xtrainFeatures, p.ytrain)
-                probs = svc.predict(p.xtestFeatures, calcProbs=True)
-                ypred = MLUtils.probsToPreds(probs)
-                auc = sf.AUCScore(p.ytest, probs)
-                gmean = sf.gmeanScore(p.ytest, ypred)
-                # Don't let results with rates=(0,1) gets in
-                if (auc > bs.auc and gmean > 0):
-                    bs.auc = auc
-                    bp.auc = hp
-                    bp.auc.kernel, bp.auc.C, bp.auc.gamma = kernel, C, gamma
-                    bp.auc.rates = sf.calcRates(p.ytest, ypred)
-                    if (verbose):
-                        print('best auc ', bs.auc, bp.auc)
-                if (gmean > bs.gmean):
-                    bs.gmean = gmean
-                    bp.gmean = hp
-                    bp.gmean.kernel, bp.gmean.C, bp.gmean.gamma = kernel, C, gamma
-                    bp.gmean.rates = sf.calcRates(p.ytest, ypred)
-                    if (verbose):
-                        print('best gmean ', bs.gmean, bp.gmean)
-            except:
-                print('error with _predict!')
-                utils.dump((p, bs, bp, hp, kernel, C, gamma), '_predict', utils.DUMPER_FOLDER)
-                print(traceback.format_exc())
+    def _boost(self, xtrainFeatures, ytrain, shuffleIndices=None):
+        if (self.useSmote):
+            xtrainFeaturesBoost, ytrainBoost = \
+                MLUtils.boostSmote(xtrainFeatures, ytrain)
+            if (self.shuffleLabels):
+                ytrainBoost = ytrainBoost[shuffleIndices]
+        else:
+            if (self.useUnderSampling):
+                xtrainFeaturesBoost, ytrainBoost = \
+                    MLUtils.undersampling(xtrainFeatures, ytrain)
+                if (self.shuffleLabels):
+                    ytrainBoost = ytrainBoost[
+                        np.random.permutation(len(ytrainBoost))]
+            else:
+                xtrainFeaturesBoost, ytrainBoost = \
+                    MLUtils.boost(xtrainFeatures, ytrain)
+        return xtrainFeaturesBoost, ytrainBoost
+
+    def _predict(self, xtrain, xtest, ytrain, ytest, hp):
+        try:
+            svc = GSS.TSVC(C=hp.C, kernel=hp.kernel, gamma=hp.gamma)
+            svc.fit(xtrain, ytrain)
+            probs = svc.predict(xtest, calcProbs=True)
+            ypred = MLUtils.probsToPreds(probs)
+            score = Bunch(auc=sf.AUCScore(ytest, probs),
+                gmean=sf.gmeanScore(ytest, ypred),
+                rates=sf.calcRates(ytest, ypred))
+        except:
+            utils.dump((xtrain, xtest, ytrain, ytest, hp))
+            score = 0
+        return score
 
 
 #     def calculatePredictionsScores(self, saveResults=False):
@@ -631,6 +634,7 @@ class Analyzer(object):
         ps = Bunch(auc=None, gmean=None)
         scores = Bunch(auc=None, gmean=None)
         scoresShuffle = Bunch(auc=None, gmean=None)
+        goodSubjects = {}
         for acc in bestEstimators.keys():
             if not self.leaveOneSubjectOutFolds:
                 scores[acc] = np.array(bestEstimators[acc]['scores'])
@@ -640,8 +644,13 @@ class Analyzer(object):
                     for subject in bestEstimators[acc]])
                 scoresShuffle[acc] = np.array([np.mean(bestEstimatorsShuffle[acc][subject]['scores'])
                     for subject in bestEstimatorsShuffle[acc]])
-                plots.barGrouped2(scores[acc], scoresShuffle[acc], xtick=bestEstimators[acc].keys(),
-                    labels=['org', 'shuffle'], ylabel='Accuracy ({})'.format(acc))
+            goodSubjects[acc] =  scores[acc] > 0.5
+
+        goodSubjects = utils.mulList(goodSubjects)
+        for acc in bestEstimators.keys():
+            plots.barGrouped2(scores[acc], scoresShuffle[acc], xtick=bestEstimators[acc].keys(),
+                labels=['org', 'shuffle'], ylabel='Accuracy ({})'.format(acc),
+                xrotate=30)
             ps[acc] = utils.ttestGreaterThan(scores[acc], scoresShuffle[acc])
         print(ps)
 
@@ -942,6 +951,9 @@ class Analyzer(object):
             print('testSize is None, set it to {}'.format(testSize))
         return StratifiedShuffleSplit(y, foldsNum, testSize, random_state=0)
 
+    def trainCV(self, y, trialsInfo, foldsNum, testSize=None):
+        return self.featuresCV(y, trialsInfo, foldsNum, testSize)
+
     def featuresGenerator(self,x,y,cv,channelsNums,featureExtractors=None,n_jobs=-2):
         return self.featuresGeneratorFoldsChannels(x, y, cv, channelsNums, featureExtractors, n_jobs) 
     
@@ -986,15 +998,17 @@ class Analyzer(object):
             folder = self.dataFolder
         if (not utils.folderExists(folder)):
             utils.createDirectory(folder)
-        fileName = '{}/{}{}{}_{}_{}_{}{}_sub_{}.npz'.format(
+        return self._dataFileName(stepID, folder, noShuffle)
+
+    def _dataFileName(self, stepID, folder='', noShuffle=False):
+        return '{}/{}{}{}_{}_{}_{}{}_sub_{}.npz'.format(
             folder, self.indetifier,
             '_shuffled' if self.shuffleLabels and not noShuffle else '',
-            'smote' if self.useSmote and not noShuffle else '',
+            '_smote' if self.useSmote and not noShuffle else '',
             self.PROCS_NAMES[self.procID],
             self.getStepName(stepID), self.selectorName,
             '_Weights_{}'.format(self.weightsFileName) \
             if self.multipleByWeights else '', self.subject)
-        return fileName
 
     @classmethod
     def staticDataFileName(cls,folder,indetifier,procID,timeSelectorName):
@@ -1024,7 +1038,8 @@ class Analyzer(object):
     @property
     def hdf5FileName(self):
         dataFileName = self.dataFileName(self.STEP_NONE)
-        return '{}.hdf'.format(dataFileName[:-4])
+        fileName = '{}.hdf'.format(dataFileName[:-4])
+        return fileName.replace('shuffled_', '')
 
     @property
     def metaParametersFileName(self):
@@ -1140,16 +1155,23 @@ class Analyzer(object):
         return folderName
 
     def getXY(self, stepID):
+        x, y, trialsInfo = None, None, None
         if (tabu.DEF_TABLES):
-            self.hdfFile = tabu.openHDF5File(self.hdf5FileName)
+#             self.hdfFile = tabu.openHDF5File(self.hdf5FileName)
             self.hdfGroup = tabu.findOrCreateGroup(self.hdfFile,
                 self.STEPS[stepID])
-            return (self.hdfGroup.x, self.hdfGroup.y,
+            if (tabu.isTableInGroup(self.hdfGroup, 'x')):
+                x, y, trialsInfo = (self.hdfGroup.x, self.hdfGroup.y,
                     self.hdfGroup.trialsInfo)
-        else:
+
+        # In case tabu.DEF_TABLES is False, or x isn't in the hdf file
+        if (x is None):
             dic = utils.load(self.dataFileName(stepID, noShuffle=True),
                 useNumpy=True)
-            return (dic['x'], dic['y'], dic['trialsInfo'])
+            x, y, trialsInfo = dic['x'], dic['y'], dic['trialsInfo']
+        if (self.normalizeData):
+            x = self.normalizeFeatures(x, trialsInfo, self.normalizeDataField)
+        return (x, y, trialsInfo)
 
     def saveXY(self, x, y, stepID, trialsInfo=None):
         if (tabu.DEF_TABLES):
@@ -1162,6 +1184,18 @@ class Analyzer(object):
         ''' return time bin '''
 #         xAxis = utils.load(self.timeAxisFileName, useNumpy=True)
         return (self.xAxis[1] - self.xAxis[0])
+
+    def checkXForNone(self, x, fromTrial=0):
+        N, T, C = x.shape
+        for n in range(fromTrial, N):
+            print('trial {}'.format(n))
+            for t in range(T):
+                for c in range(C):
+                    if (np.isnan(x[n, t, c])):
+                        print('None! {},{},{}'.format(n, t, c))
+                    if (np.isinf(x[n, t, c])):
+                        print('Inf! {},{},{}'.format(n, t, c))
+
 
     def getStepName(self, stepID):
         return self.STEPS[stepID]
@@ -1189,13 +1223,18 @@ class Analyzer(object):
         return x 
 
     def normalizeFeatures(self, x, trialsInfo, field=''):
-        if (field==''): utils.throwException('normalizeFeatures with empty field!')
-        ids = np.array([trialInfo[field] for trialInfo in trialsInfo])
-        uids = np.unique(ids)
-        for id in uids:
-            indices = np.where(ids==id)[0]
-            x[indices],_,_ = MLUtils.normalizeData(x[indices])
-        return x
+        if (field == ''):
+            utils.throwException('normalizeFeatures with empty field!')
+        if (x.ndim == 1):
+            print('T varies from trial to trial, the normaliztion is not yet implemented!')
+            return x
+        else:
+            ids = np.array([trialInfo[field] for trialInfo in trialsInfo])
+            uids = np.unique(ids)
+            for recordID in uids:
+                indices = np.where(ids == recordID)[0]
+                x[indices, :, :], _, _ = MLUtils.normalizeData(x[indices, :, :])
+            return x
 
     @staticmethod  
     def _parallelPrediction():

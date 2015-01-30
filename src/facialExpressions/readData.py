@@ -31,15 +31,15 @@ utils.DUMPER_FOLDER = utils.createDirectory(os.path.join(FOLDER, 'dumper'))
 
 
 def readData(shuffleLabelsOptions=[False, True]):
-    Cs = [1]# np.logspace(-1, 1, 3) # np.logspace(-3, 3, 7)
-    gammas = [0] # np.logspace(-1, 0, 2) # np.logspace(-9, 0, 5)
-    kernels = ['rbf'] # ['rbf', 'linear']
-    sigSectionMinLengths = [3] # [1, 2, 3]
+    Cs = np.logspace(-1, 1, 3) # np.logspace(-3, 3, 7)
+    gammas = np.logspace(-1, 0, 2) # np.logspace(-9, 0, 5)
+    kernels = ['rbf', 'linear']
+    sigSectionMinLengths = [1, 2, 3]
     sigSectionAlphas = [0.05, 0.1, 0.2, 0.3]
     minFreqs = [0]
     maxFreqs = [40]
     onlyMidValueOptions = [True]
-    FOLDS = 5
+    FOLDS = 3
     TEST_SIZE = 0.5
     JOBS = cpuNum
     procID = AnalyzerFESuper.PROC_LEAVE_STAY
@@ -50,15 +50,16 @@ def readData(shuffleLabelsOptions=[False, True]):
             analyze = AnalyzerFE(FOLDER, '', 'all',
                 doLoadOriginalTimeAxis=False, variesT=True,
                 procID=procID, jobsNum=JOBS, leaveOneSubjectOutFolds=True,
-                useUnderSampling=True, shuffleLabels=shuffleLabels)
+                useUnderSampling=True, shuffleLabels=shuffleLabels,
+                doInnerCV=True, normalizeData=True, normalizeDataField='subjectID')
     #         analyze.preProcess()
-#             analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
-#                 kernels=kernels, testSize=TEST_SIZE,
-#                 sigSectionMinLengths=sigSectionMinLengths,
-#                 sigSectionAlphas=sigSectionAlphas,
-#                 minFreqs=minFreqs, maxFreqs=maxFreqs,
-#                 onlyMidValueOptions=onlyMidValueOptions)
-            analyze.getBestEstimators(getRemoteFiles=False)
+            analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
+                kernels=kernels, testSize=TEST_SIZE,
+                sigSectionMinLengths=sigSectionMinLengths,
+                sigSectionAlphas=sigSectionAlphas,
+                minFreqs=minFreqs, maxFreqs=maxFreqs,
+                onlyMidValueOptions=onlyMidValueOptions)
+#             analyze.getBestEstimators(getRemoteFiles=False)
 #             analyze.analyzeResults(doPlot=True)
 
         except:

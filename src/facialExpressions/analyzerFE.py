@@ -64,10 +64,6 @@ class AnalyzerFESuper(object):
         groups = [leftEye, rightEye, leftLeftEyeBrow, leftRightEyeBrow, rightRightEyeBrow, rightLeftEyeBrow, nose, mouth, chickLeft, chickRight, rightChin, leftChin]
         return groups
 
-    def featuresCV(self, y, trialsInfo, foldsNum, testSize=None):
-        subjects = [trialInfo['subjectID'] for trialInfo in trialsInfo]
-        return SubjectsCV(subjects)
-
     def calcTimeStep(self, trialsInfo):
         ''' return times bin '''
         return np.array([trialInfo['timeStep'] for trialInfo in trialsInfo])

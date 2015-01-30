@@ -65,7 +65,7 @@ def autolabel(rects, fontSize=24):
 
 # @tryCall
 def barGrouped2(x1, x2, x1std=None, x2std=None, labels=None, xtick=None, ylim=None,
-                ylabel='', title='', figName='', doShow=True):
+                ylabel='', title='', xrotate=0, figName='', doShow=True):
     if not labels:
         labels = ['', '']
     init()
@@ -89,6 +89,8 @@ def barGrouped2(x1, x2, x1std=None, x2std=None, labels=None, xtick=None, ylim=No
     if (ylim):
         plt.ylim([ylim[0], ylim[1]])
     plt.grid(True)
+    if (xrotate):
+        plt.xticks(rotation=xrotate)
     if (title != ''):
         plt.title(title)
     # fig.autofmt_xdate()

@@ -24,19 +24,17 @@ import subprocess
 import shlex
 import smtplib
 import random
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-# from email.MIMEBase import MIMEBase
-from email import Encoders
 import shutil
 import types
 from datetime import datetime
-from functools import wraps
+from functools import wraps, reduce
 from sklearn.datasets.base import Bunch
 import traceback
 import string
 import fnmatch
 import inspect
+from operator import mul
 
 # for parmap
 import multiprocessing
@@ -962,21 +960,25 @@ def generateRandomString(N):
         string.digits) for _ in range(N))
 
 
-def dump(objToDump, functionName='', dumpFolder=''):
+def dump(objToDump, functionName='', dumpFolder='', doPrint=True):
     if (dumpFolder == ''):
         dumpFolder = DUMPER_FOLDER
     if (functionName == ''):
         stack = inspect.stack()
-        className = stack[1][0].f_locals["self"].__class__.__name__
+        if ("self" in stack[1][0].f_locals):
+            className = stack[1][0].f_locals["self"].__class__.__name__
+        else:
+            className = ''
         methodName = stack[1][0].f_code.co_name
         functionName = '{}.{}'.format(className, methodName)
     dumpID = generateRandomString(5)
-    print('Error in {}! {}'.format(functionName, dumpID))
     errStr = traceback.format_exc()
-    print(errStr)
     dumpFileName = '{}_dump_{}.pkl'.format(functionName, dumpID)
     save((objToDump, errStr), os.path.join(dumpFolder, dumpFileName))
-    print('saved in {}'.format(os.path.join(dumpFolder, dumpFileName)))
+    if (doPrint):
+        print('Error in {}! {}'.format(functionName, dumpID))
+        print(errStr)
+        print('saved in {}'.format(os.path.join(dumpFolder, dumpFileName)))
 
 
 def loadDumpFile(dumpFolder, dumpFileName):
@@ -1060,3 +1062,7 @@ def mergeDics(d1, d2):
 
 def mergeBunches(b1, b2):
     return Bunch(*dict(b1.__dict__.items() + b2.__dict__.items()))
+
+
+def mulList(lst):
+    return reduce(mul, lst, 1)

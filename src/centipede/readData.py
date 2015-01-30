@@ -12,8 +12,9 @@ from path3 import path
 import traceback
 from src.centipede.analyzerCentipede import (AnalyzerCentipede,
     AnalyzerCentipedeSuper, AnalyzerCentipedeTimeSWFreqs,
-    AnalyzerCentipedeSpacialSWFreqs, AnalyzerCentipedeFreqsSW)
-from src.commons.utils import tablesUtils
+    AnalyzerCentipedeSpacialSWFreqs, AnalyzerCentipedeFreqsSW,
+    AnalyzerCentipedeAll, AnalyzerCentipedeAllFreqsSW)
+from src.commons.utils import tablesUtils as tabu
 from src.commons.utils import utils
 from src.commons.utils import plots
 from src.commons.utils import sectionsUtils as su
@@ -38,8 +39,8 @@ RESULTS_FILE_NAME = path.join(path(__file__).parent.parent.parent,
     'output.txt')
 
 FTP_NOAM, FTP_OHAD, FTP_OHAD_FROM_LAB = range(3)
-FTP_SERVER = FTP_NOAM
-PORT = 22 if FTP_SERVER == FTP_OHAD_FROM_LAB else 9991
+FTP_SERVER = FTP_OHAD
+PORT = 22 if FTP_SERVER == FTP_OHAD_FROM_LAB else 9999
 FTP_USER = 'noam' if FTP_SERVER in [FTP_OHAD, FTP_OHAD_FROM_LAB] else 'noampeled'
 FTP_FOLDER = os.path.join(FOLDER_LAB, 'svmFiles') if FTP_SERVER == FTP_NOAM \
     else os.path.join(FOLDER_OHAD, 'svmFiles')
@@ -67,7 +68,8 @@ if (FOLDS == 1):
     print('DEBUG!!!! CHANGE FOLDS NUMBER!!!')
 TEST_SIZE = 0.5
 PROC_ID = AnalyzerCentipedeSuper.PROC_LEAVE_STAY_6_10
-tablesUtils.DEF_TABLES = False
+tabu.DEF_TABLES = False
+shuffleLabelsOptions = [False, True]
 
 
 def readData(shuffleLabelsOptions=[True, False], useSmote=False):
@@ -100,6 +102,75 @@ def readData(shuffleLabelsOptions=[True, False], useSmote=False):
             analyze.findSignificantResults(doShow=False)
         except:
             print('error with subject {}'.format(subject))
+            print traceback.format_exc()
+
+
+def readDataAll(useSmote=False):
+    FOLDS = 3
+    maxFreqs = [40]
+    tabu.DEF_TABLES = False
+    for shuffleLabels in shuffleLabelsOptions:
+        try:
+            analyze = AnalyzerCentipedeAll(FOLDER, DATA_FILE, 'all',
+                procID=PROC_ID, jobsNum=JOBS,
+                shuffleLabels=shuffleLabels, useSmote=useSmote,
+                variesT=True, leaveOneSubjectOutFolds=True,
+                useUnderSampling=True, doInnerCV=True,
+                normalizeData=True, normalizeDataField='subject')
+            # analyze.preProcess(overwriteExistingFile=True)
+#             analyze.process(foldsNum=FOLDS, Cs=Cs, gammas=gammas,
+#                 kernels=kernels, testSize=TEST_SIZE,
+#                 sigSectionMinLengths=sigSectionMinLengths,
+#                 sigSectionAlphas=sigSectionAlphas,
+#                 minFreqs=minFreqs, maxFreqs=maxFreqs,
+#                 onlyMidValueOptions=onlyMidValueOptions)
+            analyze.getBestEstimators(getRemoteFiles=True)
+#                 analyze.analyzeResults(doPlot=True)
+        except:
+            if (tabu.DEF_TABLES):
+                analyze.hdfFile.close()
+            print traceback.format_exc()
+            print('')
+
+    analyze = AnalyzerCentipedeAll(FOLDER, DATA_FILE, 'all',
+        procID=PROC_ID, jobsNum=JOBS, useSmote=useSmote,
+        variesT=True, leaveOneSubjectOutFolds=True,
+        useUnderSampling=True, doInnerCV=True,
+        normalizeData=True, normalizeDataField='subject')
+    analyze.findSignificantResults(doPlot=True, overwrite=False)
+
+
+def readDataAllFreqsSW(useSmote=False):
+    FOLDS = 3
+    maxFreqs = [40]
+    tabu.DEF_TABLES = False
+    windowSizes = [5]
+    windowsNums = [16]
+
+    for shuffleLabels in [False]: # shuffleLabelsOptions:
+        try:
+            analyze = AnalyzerCentipedeAllFreqsSW(FOLDER, DATA_FILE, 'all',
+                procID=PROC_ID, jobsNum=JOBS,
+                shuffleLabels=shuffleLabels, useSmote=useSmote,
+                variesT=True, leaveOneSubjectOutFolds=True,
+                useUnderSampling=True, doInnerCV=True,
+                normalizeData=True, normalizeDataField='subject')
+            # analyze.preProcess()
+            analyze.process(foldsNum=FOLDS, testSize=TEST_SIZE,
+                kernels=kernels, n_jobs=JOBS, Cs=Cs, gammas=gammas,
+                sigSectionMinLengths=sigSectionMinLengths,
+                sigSectionAlphas=sigSectionAlphas,
+                minFreqs=minFreqs, maxFreqs=maxFreqs,
+                onlyMidValueOptions=onlyMidValueOptions,
+                windowSizes=windowSizes, windowsNums=windowsNums)
+
+            # analyze.getBestEstimators()
+#             results[subject] = analyze.analyzeResults(
+#                 freqsSliderRange=(minFreqs[0], maxFreqs[0]),
+#                 plotPerAccFunc=False, doSmooth=False,
+#                 doPlot=False)
+        except:
+            print('error!')
             print traceback.format_exc()
 
 
@@ -352,10 +423,12 @@ if __name__ == '__main__':
         print('cpuNum = %d' % JOBS)
 
     t = utils.ticToc()
-#     readData(useSmote=True)
-    readDataSpacialSW()
+#     readData(useSmote=False)
+#     readDataSpacialSW()
 #     readDataTimeSlidingWindow()
 #     readDataFreqsSlidingWindow()
+#     readDataAll()
+    readDataAllFreqsSW()
     howMuchTime = utils.howMuchTimeFromTic(t)
     utils.sendResultsEmail('analyzer is done! {}'.format(howMuchTime),
         RESULTS_FILE_NAME)

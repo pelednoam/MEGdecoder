@@ -12,8 +12,7 @@ from src.commons.analyzerFreqsSlidingWindow.analyzerFreqsSWSelector \
     import AnalyzerFreqsSWSelector
 from src.commons.analyzerFreqsSlidingWindow.analyzerFreqTimeSWSelector \
     import AnalyzerFreqsTimeSWSelector
-from src.commons.analyzer.analyzerPowerSpectrumSelector \
-    import AnalyzerPowerSpectrumSelector
+
 from src.commons.analyzer.analyzerFreqsSelector import AnalyzerFreqsSelector
 from src.commons.utils import utils
 from src.commons import scoreFunctions as sf
@@ -128,7 +127,7 @@ class AnalyzerCentipedeSuper(object):
         return sf.gmeanScore(ytest, ypred)
 #         return sf.AUCScore(ytest, probs)
 
-    def findLastLeaveBeforeRound6(self, matlabDic):
+    def findLastLeaveBeforeRound6(self, matlabDic=None):
         ''' The function tries to find where to player has realized that the agent always
             stays for the first 5 rounds. For that, it finds the last game where the player has 
             left in round<6 '''
@@ -163,6 +162,65 @@ class AnalyzerCentipedeSuper(object):
     @property
     def T(self):
         return 3.5
+
+
+class AnalyzerCentipedeAllSuper(AnalyzerCentipedeSuper):
+
+    def loadData(self):
+        allFiles = {}
+#         self.lengths = []
+        if (self.procID == self.PROC_LEAVE_STAY_6_10):
+            self.lastLeaveBeforeRound6 = self.findLastLeaveBeforeRound6()
+        matFiles = list(path(self.folder).walk(self.matlabFile))
+        print('{} files were found'.format(len(matFiles)))
+        for matfile in matFiles:
+            subject = matfile.parent.name
+            if subject == 'data':
+                subject = matfile.parent.parent.name
+            print('Loading the file for {}'.format(subject))
+            matlabDic = utils.loadMatlab(matfile)
+            allFiles[subject] = matlabDic
+        return allFiles
+
+    def dataGenerator(self, matlabDics):
+        for subject, matlabDic in matlabDics.iteritems():
+            trials, labels = np.squeeze(np.array(matlabDic['x'])), \
+                np.squeeze(np.array(matlabDic['y']))
+            rounds, games, sessions = self.getTrialsInfo(matlabDic)
+            for trial, label, round, game, session in zip(trials, labels, rounds, games, sessions):
+                yield ((trial.T, label), {'subject': subject, 'round': round,
+                    'game': game, 'session': session})
+
+    def metaDataGenerator(self, matlabDics):
+        for subject, matlabDic in matlabDics.iteritems():
+            labels = np.squeeze(np.array(matlabDic['y']))
+            rounds, games, sessions = self.getTrialsInfo(matlabDic)
+            for label, round, game, session in zip(labels, rounds, games, sessions):
+                yield (label, {'subject': subject, 'round': round,
+                    'game': game, 'session': session})
+
+    def getTrialShape(self, matlabDics):
+        trial = matlabDics[0]['x'][0][0]
+        return trial.T.shape
+
+    def getChannelsNum(self, matlabDics):
+        # channelsNum = self.getTrialShape(matlabDics)[2]
+        # print('channels num: {}'.format(channelsNum))
+        # return channelsNum
+        return 248
+
+    def setTrialInfoRecord(self, tab, recordNum, trialInfo):
+        tab.cols.subject[recordNum] = trialInfo['subject']
+        tab.cols.round[recordNum] = trialInfo['round']
+        tab.cols.game[recordNum] = trialInfo['game']
+        tab.cols.session[recordNum] = trialInfo['session']
+
+    trialsInfoDesc = {
+        'subject': tables.StringCol(16),
+        'round': tables.Int32Col(),
+        'game': tables.Int32Col(),
+        'session': tables.Int32Col(),
+    }
 
 
 class AnalyzerCentipede(AnalyzerCentipedeSuper, AnalyzerFreqsSelector):
@@ -204,57 +262,55 @@ class AnalyzerCentipedeFreqsTimeSW(AnalyzerCentipedeSuper,
         super(AnalyzerFreqsTimeSWSelector, self).__init__(*args, **kwargs)
 
 
-class AnalyzerCentipedeAll(AnalyzerCentipede):
+class AnalyzerCentipedeAll(AnalyzerCentipedeAllSuper, AnalyzerFreqsSelector):
 
     def __init__(self, *args, **kwargs):
-        kwargs['indetifier']='centipedeAll'
-        super(AnalyzerCentipede, self).__init__(*args, **kwargs)
-
-    def loadData(self):
-        allFiles={}
-        self.lengths = []
-        for matfile in path(self.folder).walk(self.matlabFile):
-            subject = matfile.parent.name
-            matlabDic = utils.loadMatlab(matfile)
-            allFiles[subject] = matlabDic
-            T = matlabDic['x'][0,:][0].shape[1]
-            self.lengths.append(T)
-        return allFiles
-
-    def dataGenerator(self, matlabDics):
-        minT = min(self.lengths)
-        for subject,matlabDic in matlabDics.iteritems():
-            (trials,labels,rounds,games,sessions) = (matlabDic['x'],matlabDic['y'],matlabDic['rounds'],matlabDic['games'],matlabDic['sessions'])
-            for trial, label, round, game, session in zip(trials[0,:],labels[:,0],rounds[:,0],games[:,0],sessions[:,0]):
-                yield ((trial[:,:minT].T, label), {subject:'subject', 'round':round,'game':game, 'session':session})
+        kwargs['indetifier'] = 'centipedeAll'
+        super(AnalyzerCentipedeAll, self).__init__(*args, **kwargs)
 
 
-class AnalyzerCentipedeSpectrum(AnalyzerPowerSpectrumSelector):
-    PROCS_NAMES = ['StayOrLeave']
-    PROC_LEAVE_STAY = 0
-    LABELS = [['Stay','Leave']]
-
-    SPECTRAL_FOLDER = 'spectral'
-
+class AnalyzerCentipedeAllFreqsSW(AnalyzerCentipedeAllSuper, AnalyzerFreqsSWSelector):
 
     def __init__(self, *args, **kwargs):
-        kwargs['indetifier']='centipedeSpectrumSelector'
-        super(AnalyzerCentipedeSpectrum, self).__init__(*args, **kwargs)
+        kwargs['indetifier'] = 'centipedeAllFreqsSW'
+        super(AnalyzerCentipedeAllFreqsSW, self).__init__(*args, **kwargs)
 
-    def loadFreqs(self): 
-        freqsDic = utils.loadMatlab(os.path.join(self.spectralFolder,'freqsArr.mat'))
-        freqs = {}
-        labels = self.LABELS[self.procID]
-        freqs[labels[0]] = freqsDic['{}Freqs'.format(labels[0])][0]
-        freqs[labels[1]] = freqsDic['{}Freqs'.format(labels[1])][0]
-        return freqs
-    
-    def scorer(self,ytest,probs):
-        ypred = MLUtils.probsToPreds(probs)
-        return sf.gmeanScore(ytest, ypred)
+    # Load the save file as AnalyzerCentipedeAll
+    def _dataFileName(self, stepID, folder='', noShuffle=False):
+        return '{}/{}{}{}_{}_{}_{}_sub_{}.npz'.format(
+            folder, 'centipedeAll',
+            '_shuffled' if self.shuffleLabels and not noShuffle else '',
+            '_smote' if self.useSmote and not noShuffle else '',
+            self.PROCS_NAMES[self.procID],
+            self.getStepName(stepID), 'FrequenciesSelector',
+            self.subject)
 
-    def gridSearchScorer(self,ytest,probs):
-        ypred = MLUtils.probsToPreds(probs)
-        return sf.gmeanScore(ytest, ypred)
+ # class AnalyzerCentipedeSpectrum(AnalyzerPowerSpectrumSelector):
+#     PROCS_NAMES = ['StayOrLeave']
+#     PROC_LEAVE_STAY = 0
+#     LABELS = [['Stay','Leave']]
+# 
+#     SPECTRAL_FOLDER = 'spectral'
+# 
+# 
+#     def __init__(self, *args, **kwargs):
+#         kwargs['indetifier']='centipedeSpectrumSelector'
+#         super(AnalyzerCentipedeSpectrum, self).__init__(*args, **kwargs)
+# 
+#     def loadFreqs(self): 
+#         freqsDic = utils.loadMatlab(os.path.join(self.spectralFolder,'freqsArr.mat'))
+#         freqs = {}
+#         labels = self.LABELS[self.procID]
+#         freqs[labels[0]] = freqsDic['{}Freqs'.format(labels[0])][0]
+#         freqs[labels[1]] = freqsDic['{}Freqs'.format(labels[1])][0]
+#         return freqs
+#     
+#     def scorer(self,ytest,probs):
+#         ypred = MLUtils.probsToPreds(probs)
+#         return sf.gmeanScore(ytest, ypred)
+# 
+#     def gridSearchScorer(self,ytest,probs):
+#         ypred = MLUtils.probsToPreds(probs)
+#         return sf.gmeanScore(ytest, ypred)
 
 

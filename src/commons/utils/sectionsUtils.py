@@ -19,17 +19,22 @@ def findSigSectionsInPValues(X, y, selector, alpha, sigSectionMinLength,
     if (sectionsKeys is None):
         sectionsKeys = [None] * C
     for c, sectionKey in zip(range(C), sectionsKeys):
-        xc = calcSlice(X, c, cvIndices, timeIndices, weights)
-        model = selector.fit(xc, y)
-        sigSections = findSectionSmallerThan(model.pvalues_,
-            alpha, sigSectionMinLength)
-        if (len(sigSections) > 0):
-            sections[c] = sigSections
-            sectionsDic[c] = sectionKey
-        if (doPlotSections):
-            plot2PSAndSctions(xAxis, model, sigSections, X[:, :, c], y,
-                alpha, maxSurpriseVal=maxSurpriseVal,
-                xlabel='Time (ms)', labels=labels)
+        try:
+            xc = calcSlice(X, c, cvIndices, timeIndices, weights)
+            model = selector.fit(xc, y)
+            sigSections = findSectionSmallerThan(model.pvalues_,
+                alpha, sigSectionMinLength)
+            if (len(sigSections) > 0):
+                sections[c] = sigSections
+                sectionsDic[c] = sectionKey
+            if (doPlotSections):
+                plot2PSAndSctions(xAxis, model, sigSections, X[:, :, c], y,
+                    alpha, maxSurpriseVal=maxSurpriseVal,
+                    xlabel='Time (ms)', labels=labels)
+        except:
+            utils.dump((c, y, selector, cvIndices, timeIndices, alpha,
+                        sigSectionMinLength), doPrint=False)
+
     return sections, sectionsDic
 
 

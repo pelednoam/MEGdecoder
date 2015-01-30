@@ -28,7 +28,8 @@ class AnalyzerTimeSWSelector(AnalyzerSelector):
             resultsFileNames.append(resultsFileName)
             if (not doCalc):
                 continue
-            _, ytrain, ytest, _, _ = self._preparePPInit(p, getX=False)
+            _, y, _, _ = self._preparePPInit(p, getX=False)
+            ytrain, ytest = y[p.trainIndex], y[p.testIndex]
             print('{} out of {}'.format(p.index, p.paramsNum))
 #             T = x.shape[1]
 #             timeStep = self.calcTimeStep(T)

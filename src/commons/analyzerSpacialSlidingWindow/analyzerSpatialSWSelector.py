@@ -29,7 +29,8 @@ class AnalyzerSpacialSWSelector(AnalyzerTimeSWSelector):
                 resultsFileNames.append(resultsFileName)
                 if (not doCalc):
                     continue
-                cube, ytrain, ytest, _, _ = self._preparePPInit(p)
+                cube, y, _, _ = self._preparePPInit(p)
+                ytrain, ytest = y[p.trainIndex], y[p.testIndex]
                 x = cube.x
                 print('{} out of {}'.format(p.index, p.paramsNum))
 

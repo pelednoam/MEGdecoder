@@ -26,7 +26,8 @@ class AnalyzerFreqsTimeSWSelector(AnalyzerTimeSWFreqsSelector):
         resultsFileName, doCalc = self.checkExistingResultsFile(p)
         if (not doCalc):
             return resultsFileName
-        x, ytrain, ytest, p.trialsInfo, _ = self._preparePPInit(p)
+        x, y, p.trialsInfo, _ = self._preparePPInit(p)
+        ytrain, ytest = y[p.trainIndex], y[p.testIndex]
         results = []
         print('{} out of {}'.format(p.index, p.paramsNum))
         T = x.shape[1]

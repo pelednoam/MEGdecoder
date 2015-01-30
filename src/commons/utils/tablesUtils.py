@@ -27,11 +27,11 @@ def createHDF5File(fileName):
         return tables.openFile(fileName, mode='w')
 
 
-def openHDF5File(fileName):
+def openHDF5File(fileName, mode='a'):
     try:
-        return tables.open_file(fileName, mode='a')
+        return tables.open_file(fileName, mode=mode)
     except:
-        return tables.openFile(fileName, mode='a')
+        return tables.openFile(fileName, mode=mode)
 
 
 # dtype = np.dtype('int16') / np.dtype('float64')
@@ -42,11 +42,11 @@ def createHDF5ArrTable(hdfFile, group, arrayName,
     if (arr is not None):
         shape = arr.shape
 #     filters = tables.Filters(complib=complib, complevel=complevel)
-    if (not arrayName in group._v_children):
+    if (not isTableInGroup(group, arrayName)):
         try:
             ds = hdfFile.create_carray(group, arrayName, atom, shape)
         except:
-            ds = hdfFile.createArray(group, arrayName, atom, shape)
+            ds = hdfFile.createCArray(group, arrayName, atom, shape)
     else:
         ds = group._v_children[arrayName]
 
@@ -62,6 +62,13 @@ def createHDFTable(hdf5File, group, tableName, tableDesc):
         tab = group._v_children[tableName]
 #     tab.cols.key.createIndex()
     return tab
+
+
+def isTableInGroup(group, arrayName):
+    try:
+        return arrayName in group._v_children
+    except:
+        return False
 
 
 def addDicitemsIntoTable(tab, d):
@@ -91,7 +98,14 @@ def findTable(h5file, tableName, groupName=''):
     try:
         path = '/{}'.format(tableName) if groupName == '' else \
                '/{}/{}'.format(groupName, tableName)
-        table = h5file.getNode(path)
+        table = h5file.get_node(path)
     except:
         table = None
     return table
+
+
+def findTableInGroup(group, tableName):
+    if (isTableInGroup(group, tableName)):
+        return group._v_children[tableName]
+    else:
+        return None
